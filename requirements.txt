@@ -1,0 +1,37 @@
+# ManualMan — pip install -r requirements.txt
+# Python 3.11+ required
+
+# ── Web UI ────────────────────────────────────────────────────────────────────
+streamlit>=1.35.0
+
+# ── Environment / config ──────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── LlamaIndex core + integrations ────────────────────────────────────────────
+# Each integration is its own pip package in LlamaIndex v0.10+
+llama-index-core>=0.11.0
+llama-index-embeddings-voyageai>=0.2.0      # Voyage AI embeddings
+llama-index-vector-stores-chroma>=0.2.0     # ChromaDB vector store
+llama-index-llms-anthropic>=0.3.0           # Claude via Anthropic API
+llama-index-readers-file>=0.2.0             # PDF / file readers
+
+# ── Vector database ───────────────────────────────────────────────────────────
+chromadb>=0.5.0
+
+# ── PDF parsing + image extraction ───────────────────────────────────────────
+# PyMuPDF (imported as `fitz`) handles text, images, and page metadata cleanly
+# without requiring system-level dependencies (unlike Unstructured).
+# DECISION: Chose PyMuPDF over Unstructured for Windows compatibility and
+# simpler setup. Unstructured gives better OCR on scanned PDFs — flag for
+# Phase 5 if your manuals are scanned rather than born-digital.
+PyMuPDF>=1.24.0
+
+# ── AI APIs ──────────────────────────────────────────────────────────────────
+anthropic>=0.28.0
+voyageai>=0.3.0
+
+# ── Image handling ────────────────────────────────────────────────────────────
+Pillow>=10.0.0
+
+# ── Data handling (for the editable chunk table in Phase 2) ──────────────────
+pandas>=2.0.0

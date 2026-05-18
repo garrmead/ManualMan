@@ -1,0 +1,35 @@
+# Secrets — never commit these
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Data — too large / user-specific for version control
+data/uploads/*
+data/extracted_images/*
+data/chroma_db/*
+# Keep the placeholder files so git tracks the empty directories
+!data/uploads/.gitkeep
+!data/extracted_images/.gitkeep
+!data/chroma_db/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
