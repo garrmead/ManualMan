@@ -8,9 +8,69 @@ import pandas as pd
 # Load API keys from .env before importing config (config reads os.getenv)
 load_dotenv()
 
+import anthropic
+
 import config
 from utils.pdf_parser import extract_chunks_from_pdf, get_pdf_page_count
 from utils.embedder import commit_chunks, get_indexed_pdfs, delete_pdf_from_index, get_total_chunk_count
+from utils.retriever import retrieve, build_context_prompt
+
+# System prompt sent to Claude on every chat turn.
+# DECISION: "ONLY the provided context" prevents hallucination from Claude's
+# training data. If you want Claude to supplement with general pump knowledge
+# when the manuals don't cover something, remove that constraint here.
+_SYSTEM_PROMPT = """\
+You are ManualMan, a technical assistant specializing in pump equipment manuals \
+(Goulds, Aurora, Gorman-Rupp, and similar manufacturers).
+
+Answer the user's question using ONLY the context chunks provided below from \
+indexed pump manuals. Cite every fact with its source number using [Source N] \
+inline. If multiple sources support a point, cite all of them.
+
+If the context does not contain enough information to answer the question \
+confidently, say so clearly — do not guess or draw on outside knowledge.
+
+Be precise and technical. The user is a sales engineer who needs accurate \
+specifications, model numbers, and performance data.\
+"""
+
+
+def _render_sources(chunks: list[dict]) -> None:
+    """
+    Render a collapsible 'Sources' section below an assistant message.
+    Shows each retrieved chunk with its PDF name, page number, similarity
+    score, a text preview, and any images extracted from that page.
+    """
+    if not chunks:
+        return
+
+    with st.expander(f"📎 Sources ({len(chunks)} chunks retrieved)", expanded=False):
+        for i, chunk in enumerate(chunks, 1):
+            st.markdown(
+                f"**Source {i}** — `{chunk['source_pdf']}` · "
+                f"Page **{chunk['page_number']}** · "
+                f"relevance: {chunk['score']:.2f}"
+                + (f" · tags: `{chunk['tags']}`" if chunk["tags"] else "")
+            )
+            # Show a short preview of the chunk text (not the whole thing)
+            preview = chunk["text"][:400]
+            if len(chunk["text"]) > 400:
+                preview += "…"
+            st.caption(preview)
+
+            # Show images extracted from the same page, if any exist on disk
+            valid_images = [p for p in chunk["image_paths"] if Path(p).exists()]
+            if valid_images:
+                img_cols = st.columns(min(len(valid_images), 3))
+                for j, img_path in enumerate(valid_images):
+                    img_cols[j % 3].image(
+                        img_path,
+                        use_container_width=True,
+                        caption=Path(img_path).name,
+                    )
+
+            if i < len(chunks):
+                st.divider()
 
 
 def _build_chunks_df(chunks: list[dict]) -> pd.DataFrame:
@@ -270,21 +330,95 @@ with tab_parse:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Chat (Phase 4 placeholder)
+# TAB 2 — Chat
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_chat:
     st.header("💬 Chat with Your Manuals")
-    st.caption(
-        "Ask questions about indexed manuals. Answers will cite the source "
-        "PDF and page number, and show any relevant diagrams."
-    )
-    if get_total_chunk_count() == 0:
-        st.info("Index at least one manual first (use Parse & Edit → Commit), then come back here.")
-    else:
+
+    total_chunks = get_total_chunk_count()
+    indexed_pdfs = get_indexed_pdfs()
+
+    if total_chunks == 0:
         st.info(
-            f"**{get_total_chunk_count()} chunks** are indexed and ready.  \n"
-            "Chat interface coming in Phase 4."
+            "No manuals indexed yet.  \n"
+            "Go to **Parse & Edit**, upload a PDF, parse it, and click **Commit to Knowledge Base**."
         )
+    elif not anthropic_ok:
+        st.error("Anthropic API key missing — add it to `.env` and restart.")
+    else:
+        st.caption(
+            f"Searching **{total_chunks} chunks** across "
+            f"**{len(indexed_pdfs)} manual(s)** · "
+            f"Top {config.TOP_K} chunks retrieved per query · "
+            f"Model: `{config.ANTHROPIC_MODEL}`"
+        )
+
+        # ── Clear chat button ──────────────────────────────────────────────────
+        if st.session_state.chat_history:
+            if st.button("🗑️ Clear chat", key="clear_chat"):
+                st.session_state.chat_history = []
+                st.rerun()
+
+        # ── Render existing chat history ───────────────────────────────────────
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                # Show source citations for assistant messages
+                if msg["role"] == "assistant" and msg.get("chunks"):
+                    _render_sources(msg["chunks"])
+
+        # ── Chat input ─────────────────────────────────────────────────────────
+        if question := st.chat_input("Ask about your pump manuals…"):
+
+            # Show the user's message immediately
+            st.session_state.chat_history.append(
+                {"role": "user", "content": question, "chunks": None}
+            )
+            with st.chat_message("user"):
+                st.markdown(question)
+
+            # Retrieve relevant chunks, then stream Claude's answer
+            with st.chat_message("assistant"):
+                with st.spinner("Searching manuals…"):
+                    chunks = retrieve(question)
+
+                if not chunks:
+                    answer = (
+                        "I couldn't find any relevant content in the indexed manuals "
+                        "for that question. Try rephrasing, or check that the right "
+                        "manual is indexed."
+                    )
+                    st.markdown(answer)
+                else:
+                    context = build_context_prompt(chunks)
+                    user_message = (
+                        f"Context from pump manuals:\n\n{context}"
+                        f"\n\n---\n\nQuestion: {question}"
+                    )
+
+                    # Stream the response so the user sees words appear in real time
+                    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+                    def _stream_response():
+                        with client.messages.stream(
+                            model=config.ANTHROPIC_MODEL,
+                            max_tokens=config.MAX_TOKENS,
+                            system=_SYSTEM_PROMPT,
+                            messages=[{"role": "user", "content": user_message}],
+                        ) as stream:
+                            for text in stream.text_stream:
+                                yield text
+
+                    # st.write_stream displays tokens as they arrive and returns
+                    # the full completed string when done
+                    answer = st.write_stream(_stream_response())
+
+                    _render_sources(chunks)
+
+            # Save to history so citations persist when the user scrolls up
+            st.session_state.chat_history.append(
+                {"role": "assistant", "content": answer, "chunks": chunks}
+            )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
