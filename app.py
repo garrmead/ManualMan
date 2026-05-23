@@ -14,6 +14,30 @@ load_dotenv()
 import config
 from utils.pdf_parser import extract_chunks_from_pdf, get_pdf_page_count
 
+
+def _build_chunks_df(chunks: list[dict]) -> pd.DataFrame:
+    """
+    Convert the list of chunk dicts from pdf_parser into a pandas DataFrame
+    shaped for st.data_editor. Only the columns users should see/edit are included;
+    chunk_id and image_paths stay in st.session_state.parsed_chunks for Phase 3.
+    """
+    rows = []
+    for c in chunks:
+        rows.append({
+            "keep":       c["keep"],
+            "source_pdf": c["source_pdf"],
+            "page":       c["page_number"],
+            "text":       c["text"],
+            "tags":       c["tags"],
+        })
+    df = pd.DataFrame(rows)
+    df["keep"]       = df["keep"].astype(bool)
+    df["page"]       = df["page"].astype(int)
+    df["source_pdf"] = df["source_pdf"].astype(str)
+    df["text"]       = df["text"].astype(str)
+    df["tags"]       = df["tags"].astype(str)
+    return df
+
 # ── Page setup ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="ManualMan — Pump Manual RAG",
@@ -273,30 +297,3 @@ with tab_manuals:
     st.info("No manuals indexed yet — use Parse & Edit to get started.")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Helpers (defined after tabs to keep the reading order top-to-bottom)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _build_chunks_df(chunks: list[dict]) -> pd.DataFrame:
-    """
-    Convert the list of chunk dicts from pdf_parser into a pandas DataFrame
-    shaped for st.data_editor. Only the columns users should see/edit are included;
-    chunk_id and image_paths stay in st.session_state.parsed_chunks for Phase 3.
-    """
-    rows = []
-    for c in chunks:
-        rows.append({
-            "keep":       c["keep"],
-            "source_pdf": c["source_pdf"],
-            "page":       c["page_number"],
-            "text":       c["text"],
-            "tags":       c["tags"],
-        })
-    df = pd.DataFrame(rows)
-    # Explicit dtypes help data_editor render the right widget per column
-    df["keep"]       = df["keep"].astype(bool)
-    df["page"]       = df["page"].astype(int)
-    df["source_pdf"] = df["source_pdf"].astype(str)
-    df["text"]       = df["text"].astype(str)
-    df["tags"]       = df["tags"].astype(str)
-    return df
