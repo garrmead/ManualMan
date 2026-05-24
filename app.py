@@ -20,25 +20,37 @@ from utils.retriever import retrieve, build_context_prompt
 # training data. If you want Claude to supplement with general pump knowledge
 # when the manuals don't cover something, remove that constraint here.
 _SYSTEM_PROMPT = """\
-You are ManualMan, a technical assistant specializing in pump equipment manuals \
+You are ManualMan, a technical assistant for pump equipment manuals \
 (Goulds, Aurora, Gorman-Rupp, and similar manufacturers).
 
-Answer the user's question using ONLY the context chunks provided below from \
-indexed pump manuals. Cite every fact with its source number using [Source N] \
-inline. If multiple sources support a point, cite all of them.
-
-Some sources are IMAGE chunks — their text is a description of a diagram, \
-performance curve, dimensional drawing, or similar. When an image source is \
-relevant, tell the user to see that source (e.g. "See [Source 2] for the \
-performance curve"). The actual image will be shown automatically in the \
-Sources panel below your answer.
-
-If the context does not contain enough information to answer the question \
-confidently, say so clearly — do not guess or draw on outside knowledge.
-
-Be precise and technical. The user is a sales engineer who needs accurate \
-specifications, model numbers, and performance data.\
+Rules:
+1. Answer using ONLY the provided context. Do not draw on outside knowledge.
+2. Be concise and direct. Lead with the answer — skip preamble like \
+   "Based on the provided context..." or restating the question.
+3. Cite sources inline as [Source N]. If multiple sources back a point, cite all.
+4. Some sources are IMAGE chunks (performance curves, drawings, etc.). \
+   Reference them briefly, e.g. "See [Source 2]." The image displays automatically — \
+   do not describe it in detail.
+5. If the context lacks enough information, say so in one sentence. Do not guess.\
 """
+
+
+def _render_inline_images(chunks: list[dict]) -> None:
+    """
+    Display image chunks directly in the chat message — large and immediately
+    visible, no click required. Only shows chunks where the file exists on disk.
+    Called for both new messages and when re-rendering chat history.
+    """
+    from utils.vision import IMAGE_TYPE_LABELS
+    image_chunks = [
+        c for c in chunks
+        if c.get("chunk_type") == "image" and Path(c.get("image_path", "")).exists()
+    ]
+    for chunk in image_chunks:
+        label = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Diagram")
+        st.markdown(f"**{label}** — `{chunk['source_pdf']}`, Page {chunk['page_number']}")
+        _, img_col, _ = st.columns([1, 5, 1])
+        img_col.image(chunk["image_path"], use_container_width=True)
 
 
 def _render_sources(chunks: list[dict]) -> None:
@@ -52,54 +64,22 @@ def _render_sources(chunks: list[dict]) -> None:
     if not chunks:
         return
 
-    # Separate image chunks from text chunks for the header count
-    image_chunks = [c for c in chunks if c.get("chunk_type") == "image"]
-    text_chunks  = [c for c in chunks if c.get("chunk_type") != "image"]
-    header = f"📎 Sources ({len(text_chunks)} text"
-    if image_chunks:
-        header += f" · {len(image_chunks)} image"
-    header += " chunks retrieved)"
+    # Image chunks are shown inline above — only put text chunks in the expander
+    text_chunks = [c for c in chunks if c.get("chunk_type") != "image"]
+    if not text_chunks:
+        return
 
-    with st.expander(header, expanded=bool(image_chunks)):
-        for i, chunk in enumerate(chunks, 1):
-            is_image = chunk.get("chunk_type") == "image"
-
-            if is_image:
-                from utils.vision import IMAGE_TYPE_LABELS
-                type_label = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Image")
-                st.markdown(
-                    f"**Source {i}** — 🖼️ **{type_label}**  \n"
-                    f"`{chunk['source_pdf']}` · Page **{chunk['page_number']}** · "
-                    f"relevance: {chunk['score']:.2f}"
-                )
-                # Show the actual image large and centred
-                img_path = chunk.get("image_path", "")
-                if img_path and Path(img_path).exists():
-                    # Use columns to keep it from stretching full width
-                    _, img_col, _ = st.columns([1, 4, 1])
-                    img_col.image(img_path, use_container_width=True)
-                # Show Claude's description as a caption
-                st.caption(f"_{chunk['text']}_")
-
-            else:
-                st.markdown(
-                    f"**Source {i}** — `{chunk['source_pdf']}` · "
-                    f"Page **{chunk['page_number']}** · "
-                    f"relevance: {chunk['score']:.2f}"
-                    + (f" · tags: `{chunk['tags']}`" if chunk.get("tags") else "")
-                )
-                preview = chunk["text"][:400] + ("…" if len(chunk["text"]) > 400 else "")
-                st.caption(preview)
-
-                # Thumbnails for any page-level images (not classified image chunks)
-                valid_images = [p for p in chunk.get("image_paths", []) if Path(p).exists()]
-                if valid_images:
-                    img_cols = st.columns(min(len(valid_images), 3))
-                    for j, img_path in enumerate(valid_images):
-                        img_cols[j % 3].image(img_path, use_container_width=True,
-                                              caption=Path(img_path).name)
-
-            if i < len(chunks):
+    with st.expander(f"📎 Text sources ({len(text_chunks)} chunks)", expanded=False):
+        for i, chunk in enumerate(text_chunks, 1):
+            st.markdown(
+                f"**{i}.** `{chunk['source_pdf']}` · "
+                f"Page **{chunk['page_number']}** · "
+                f"relevance: {chunk['score']:.2f}"
+                + (f" · `{chunk['tags']}`" if chunk.get("tags") else "")
+            )
+            preview = chunk["text"][:400] + ("…" if len(chunk["text"]) > 400 else "")
+            st.caption(preview)
+            if i < len(text_chunks):
                 st.divider()
 
 
@@ -399,8 +379,8 @@ with tab_chat:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
-                # Show source citations for assistant messages
                 if msg["role"] == "assistant" and msg.get("chunks"):
+                    _render_inline_images(msg["chunks"])
                     _render_sources(msg["chunks"])
 
         # ── Chat input ─────────────────────────────────────────────────────────
@@ -449,6 +429,8 @@ with tab_chat:
                     # the full completed string when done
                     answer = st.write_stream(_stream_response())
 
+                    # Images display inline immediately — no click needed
+                    _render_inline_images(chunks)
                     _render_sources(chunks)
 
             # Save to history so citations persist when the user scrolls up

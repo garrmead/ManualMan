@@ -190,12 +190,17 @@ def commit_chunks(
 
             classified = classify_images_batch(unique_images, progress_cb=_vision_prog)
 
-            # Build image items for embedding
+            from utils.vision import INDEXABLE_TYPES
+
+            # Only index technically useful image types — skip photos, logos, "other"
+            technical = [img for img in classified if img["image_type"] in INDEXABLE_TYPES]
+            skipped   = len(classified) - len(technical)
+            if skipped:
+                _prog(0.88, f"Skipped {skipped} non-technical image(s) (photos/logos)…")
+
             image_items = [
                 {
-                    # Stable ID so re-commits upsert rather than duplicate
                     "chunk_id": _stable_image_id(img["image_path"]),
-                    # The description IS the searchable text for this chunk
                     "text":     img["description"],
                     "metadata": {
                         "chunk_type":  "image",
@@ -204,11 +209,10 @@ def commit_chunks(
                         "image_path":  img["image_path"],
                         "image_type":  img["image_type"],
                         "tags":        "",
-                        # Not used for image chunks but kept consistent
                         "image_paths": json.dumps([img["image_path"]]),
                     },
                 }
-                for img in classified
+                for img in technical
             ]
 
             if image_items:

@@ -15,9 +15,6 @@ import anthropic
 import config
 
 # ── Controlled vocabulary ─────────────────────────────────────────────────────
-# DECISION: These 8 types cover the vast majority of images in pump manuals.
-# If you encounter a type that doesn't fit, it falls back to "other" and is
-# still indexed — just less precisely categorized.
 IMAGE_TYPES = {
     "performance_curve":    "Head/flow performance or characteristic curve",
     "dimensional_drawing":  "Dimensioned drawing with measurements and tolerances",
@@ -27,7 +24,23 @@ IMAGE_TYPES = {
     "nameplate_data":       "Nameplate, rating plate, or data table",
     "wiring_diagram":       "Wiring, electrical, or control schematic",
     "specifications_table": "Specifications, selection, or performance table",
-    "other":                "Other image type",
+    # Non-technical — classified so we can skip indexing them
+    "pump_photo":           "Photograph of a pump or equipment (not a technical drawing)",
+    "logo_branding":        "Company logo, trademark, decorative graphic, or cover art",
+    "other":                "Other image that doesn't fit the above categories",
+}
+
+# Types that are worth indexing and showing in chat.
+# pump_photo, logo_branding, and other are intentionally excluded.
+INDEXABLE_TYPES = {
+    "performance_curve",
+    "dimensional_drawing",
+    "cross_section",
+    "parts_list",
+    "installation_diagram",
+    "nameplate_data",
+    "wiring_diagram",
+    "specifications_table",
 }
 
 # Human-readable labels shown in the UI
@@ -40,6 +53,8 @@ IMAGE_TYPE_LABELS = {
     "nameplate_data":       "Nameplate / Data Table",
     "wiring_diagram":       "Wiring Diagram",
     "specifications_table": "Specifications Table",
+    "pump_photo":           "Pump Photo",
+    "logo_branding":        "Logo / Branding",
     "other":                "Other",
 }
 
@@ -54,14 +69,26 @@ _MEDIA_TYPES = {
 
 _CLASSIFICATION_PROMPT = """\
 You are analyzing an image extracted from a pump equipment manual.
-Your job is to classify it and write a detailed description for a search index.
+Classify it accurately using the type list below, then write a search-index description.
+
+TYPE OPTIONS:
+- performance_curve    — head/flow curve, efficiency curve, or pump characteristic curve (a technical graph)
+- dimensional_drawing  — engineering drawing with dimensions and measurements
+- cross_section        — cutaway or cross-sectional view showing internal parts
+- parts_list           — exploded parts diagram or bill of materials
+- installation_diagram — installation, assembly, or piping schematic
+- nameplate_data       — data plate, rating table, or spec nameplate
+- wiring_diagram       — electrical wiring or control schematic
+- specifications_table — tabular specs, model selection table, or performance table
+- pump_photo           — a PHOTOGRAPH of a pump or physical equipment (NOT a line drawing or graph)
+- logo_branding        — company logo, trademark, decorative graphic, cover image, or page border
+- other                — anything that doesn't fit the above
 
 Respond in EXACTLY this two-line format — no extra text:
-TYPE: <one of: performance_curve, dimensional_drawing, cross_section, parts_list, installation_diagram, nameplate_data, wiring_diagram, specifications_table, other>
-DESCRIPTION: <2-5 sentences. Include ALL visible technical details: model numbers, pump sizes, \
-flow rates (GPM/m³/h), head values (ft/m), pressures (PSI/bar), impeller diameters, shaft sizes, \
-RPM, dimensions (inches/mm), material callouts, connection sizes, or any other specs shown. \
-Be specific enough that someone searching for those specs can find this image.>\
+TYPE: <one type from the list above>
+DESCRIPTION: <2-5 sentences. For technical images, include ALL visible specs: model numbers, \
+sizes, flow rates (GPM), head (ft), pressures (PSI), impeller diameters, shaft sizes, RPM, \
+dimensions (in/mm), materials, connection sizes. For photos/logos, one brief sentence is enough.>\
 """
 
 
