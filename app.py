@@ -471,7 +471,7 @@ with tab_manuals:
         for entry in indexed_pdfs:
             col_name, col_count, col_del = st.columns([4, 2, 1])
             col_name.write(f"📄 {entry['source_pdf']}")
-            col_count.caption(f"{entry['chunk_count']} chunks")
+            col_count.caption(f"{entry['text_chunks']} text · {entry['image_chunks']} img")
             if col_del.button("🗑️", key=f"del_{entry['source_pdf']}", help="Remove from index"):
                 n = delete_pdf_from_index(entry["source_pdf"])
                 st.success(f"Removed {n} chunks for **{entry['source_pdf']}**.")
