@@ -41,6 +41,7 @@ INDEXABLE_TYPES = {
     "nameplate_data",
     "wiring_diagram",
     "specifications_table",
+    "pump_photo",
 }
 
 # Human-readable labels shown in the UI
