@@ -412,7 +412,6 @@ with tab_chat:
                         f"\n\n---\n\nQuestion: {question}"
                     )
 
-                    # Stream the response so the user sees words appear in real time
                     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
                     def _stream_response():
@@ -425,18 +424,15 @@ with tab_chat:
                             for text in stream.text_stream:
                                 yield text
 
-                    # st.write_stream displays tokens as they arrive and returns
-                    # the full completed string when done
                     answer = st.write_stream(_stream_response())
 
-                    # Images display inline immediately — no click needed
-                    _render_inline_images(chunks)
-                    _render_sources(chunks)
-
-            # Save to history so citations persist when the user scrolls up
+            # Save to history, then rerun so the history loop renders images.
+            # Images after write_stream don't render reliably in the same pass —
+            # st.rerun() lets the history loop handle it cleanly every time.
             st.session_state.chat_history.append(
                 {"role": "assistant", "content": answer, "chunks": chunks}
             )
+            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
