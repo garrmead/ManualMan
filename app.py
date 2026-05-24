@@ -27,6 +27,12 @@ Answer the user's question using ONLY the context chunks provided below from \
 indexed pump manuals. Cite every fact with its source number using [Source N] \
 inline. If multiple sources support a point, cite all of them.
 
+Some sources are IMAGE chunks — their text is a description of a diagram, \
+performance curve, dimensional drawing, or similar. When an image source is \
+relevant, tell the user to see that source (e.g. "See [Source 2] for the \
+performance curve"). The actual image will be shown automatically in the \
+Sources panel below your answer.
+
 If the context does not contain enough information to answer the question \
 confidently, say so clearly — do not guess or draw on outside knowledge.
 
@@ -37,37 +43,61 @@ specifications, model numbers, and performance data.\
 
 def _render_sources(chunks: list[dict]) -> None:
     """
-    Render a collapsible 'Sources' section below an assistant message.
-    Shows each retrieved chunk with its PDF name, page number, similarity
-    score, a text preview, and any images extracted from that page.
+    Render a collapsible Sources section below an assistant message.
+
+    Image chunks (chunk_type="image") are displayed with the actual image
+    shown large and prominent. Text chunks show a text preview plus any
+    page-level images as smaller thumbnails.
     """
     if not chunks:
         return
 
-    with st.expander(f"📎 Sources ({len(chunks)} chunks retrieved)", expanded=False):
-        for i, chunk in enumerate(chunks, 1):
-            st.markdown(
-                f"**Source {i}** — `{chunk['source_pdf']}` · "
-                f"Page **{chunk['page_number']}** · "
-                f"relevance: {chunk['score']:.2f}"
-                + (f" · tags: `{chunk['tags']}`" if chunk["tags"] else "")
-            )
-            # Show a short preview of the chunk text (not the whole thing)
-            preview = chunk["text"][:400]
-            if len(chunk["text"]) > 400:
-                preview += "…"
-            st.caption(preview)
+    # Separate image chunks from text chunks for the header count
+    image_chunks = [c for c in chunks if c.get("chunk_type") == "image"]
+    text_chunks  = [c for c in chunks if c.get("chunk_type") != "image"]
+    header = f"📎 Sources ({len(text_chunks)} text"
+    if image_chunks:
+        header += f" · {len(image_chunks)} image"
+    header += " chunks retrieved)"
 
-            # Show images extracted from the same page, if any exist on disk
-            valid_images = [p for p in chunk["image_paths"] if Path(p).exists()]
-            if valid_images:
-                img_cols = st.columns(min(len(valid_images), 3))
-                for j, img_path in enumerate(valid_images):
-                    img_cols[j % 3].image(
-                        img_path,
-                        use_container_width=True,
-                        caption=Path(img_path).name,
-                    )
+    with st.expander(header, expanded=bool(image_chunks)):
+        for i, chunk in enumerate(chunks, 1):
+            is_image = chunk.get("chunk_type") == "image"
+
+            if is_image:
+                from utils.vision import IMAGE_TYPE_LABELS
+                type_label = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Image")
+                st.markdown(
+                    f"**Source {i}** — 🖼️ **{type_label}**  \n"
+                    f"`{chunk['source_pdf']}` · Page **{chunk['page_number']}** · "
+                    f"relevance: {chunk['score']:.2f}"
+                )
+                # Show the actual image large and centred
+                img_path = chunk.get("image_path", "")
+                if img_path and Path(img_path).exists():
+                    # Use columns to keep it from stretching full width
+                    _, img_col, _ = st.columns([1, 4, 1])
+                    img_col.image(img_path, use_container_width=True)
+                # Show Claude's description as a caption
+                st.caption(f"_{chunk['text']}_")
+
+            else:
+                st.markdown(
+                    f"**Source {i}** — `{chunk['source_pdf']}` · "
+                    f"Page **{chunk['page_number']}** · "
+                    f"relevance: {chunk['score']:.2f}"
+                    + (f" · tags: `{chunk['tags']}`" if chunk.get("tags") else "")
+                )
+                preview = chunk["text"][:400] + ("…" if len(chunk["text"]) > 400 else "")
+                st.caption(preview)
+
+                # Thumbnails for any page-level images (not classified image chunks)
+                valid_images = [p for p in chunk.get("image_paths", []) if Path(p).exists()]
+                if valid_images:
+                    img_cols = st.columns(min(len(valid_images), 3))
+                    for j, img_path in enumerate(valid_images):
+                        img_cols[j % 3].image(img_path, use_container_width=True,
+                                              caption=Path(img_path).name)
 
             if i < len(chunks):
                 st.divider()
@@ -288,9 +318,14 @@ with tab_parse:
                 if not voyage_ok:
                     st.error("Voyage AI key missing — add it to `.env` and restart.")
                 else:
+                    img_count = len({
+                        p
+                        for c in st.session_state.parsed_chunks
+                        for p in c["image_paths"]
+                    })
                     st.caption(
-                        f"Will embed **{keep_count} chunk(s)** via Voyage AI (`{config.VOYAGE_MODEL}`) "
-                        f"and store in ChromaDB.  \n"
+                        f"Will embed **{keep_count} text chunk(s)** + classify & embed "
+                        f"**{img_count} image(s)** via Claude Vision → Voyage AI → ChromaDB.  \n"
                         f"Re-committing the same PDF **replaces** its existing entries."
                     )
 
@@ -313,15 +348,16 @@ with tab_parse:
                         commit_progress.progress(frac, text=msg)
 
                     try:
-                        n = commit_chunks(
+                        counts = commit_chunks(
                             st.session_state.edited_df,
                             st.session_state.parsed_chunks,
                             progress_cb=_progress_cb,
                         )
                         commit_progress.empty()
-                        st.session_state.last_committed = n
+                        st.session_state.last_committed = counts["text_chunks"]
                         st.success(
-                            f"✅ **{n} chunks** committed to the knowledge base.  \n"
+                            f"✅ **{counts['text_chunks']} text chunks** + "
+                            f"**{counts['image_chunks']} image chunks** committed.  \n"
                             f"Switch to the **Chat** tab to start asking questions."
                         )
                     except Exception as e:

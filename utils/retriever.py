@@ -69,6 +69,10 @@ def retrieve(question: str, top_k: int = config.TOP_K) -> list[dict]:
             "tags":        meta.get("tags", ""),
             "image_paths": json.loads(meta.get("image_paths", "[]")),
             "score":       round(score, 3),
+            # Image-chunk fields — empty string for regular text chunks
+            "chunk_type":  meta.get("chunk_type", "text"),
+            "image_path":  meta.get("image_path", ""),
+            "image_type":  meta.get("image_type", ""),
         })
 
     return chunks
@@ -84,7 +88,15 @@ def build_context_prompt(chunks: list[dict]) -> str:
 
     parts = []
     for i, chunk in enumerate(chunks, 1):
-        header = f"[Source {i}: {chunk['source_pdf']}, Page {chunk['page_number']}]"
+        if chunk.get("chunk_type") == "image":
+            from utils.vision import IMAGE_TYPE_LABELS
+            label = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Image")
+            header = (
+                f"[Source {i}: {chunk['source_pdf']}, Page {chunk['page_number']} "
+                f"— {label} (image)]"
+            )
+        else:
+            header = f"[Source {i}: {chunk['source_pdf']}, Page {chunk['page_number']}]"
         parts.append(f"{header}\n{chunk['text']}")
 
     return "\n\n---\n\n".join(parts)
