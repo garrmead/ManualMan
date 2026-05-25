@@ -19,12 +19,12 @@ llama-index-readers-file>=0.2.0             # PDF / file readers
 chromadb>=0.5.0
 
 # ── PDF parsing + image extraction ───────────────────────────────────────────
-# PyMuPDF (imported as `fitz`) handles text, images, and page metadata cleanly
-# without requiring system-level dependencies (unlike Unstructured).
-# DECISION: Chose PyMuPDF over Unstructured for Windows compatibility and
-# simpler setup. Unstructured gives better OCR on scanned PDFs — flag for
-# Phase 5 if your manuals are scanned rather than born-digital.
+# PyMuPDF handles text, images, and page metadata.
+# pdfplumber handles structured table extraction — tables in pump manuals
+# (selection tables, dimensional data, performance specs) are extracted as
+# proper Markdown rather than garbled plain text.
 PyMuPDF>=1.24.0
+pdfplumber>=0.11.0
 
 # ── AI APIs ──────────────────────────────────────────────────────────────────
 anthropic>=0.28.0

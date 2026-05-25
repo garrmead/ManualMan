@@ -116,12 +116,19 @@ def _format_citation(chunk: dict) -> str:
 # ── Helper: build DataFrame for chunk editor ──────────────────────────────────
 def _build_chunks_df(chunks: list[dict]) -> pd.DataFrame:
     rows = [
-        {"keep": c["keep"], "source_pdf": c["source_pdf"],
-         "page": c["page_number"], "text": c["text"], "tags": c["tags"]}
+        {
+            "keep":         c["keep"],
+            "type":         "📊 Table" if c.get("content_type") == "table" else "📝 Text",
+            "source_pdf":   c["source_pdf"],
+            "page":         c["page_number"],
+            "text":         c["text"],
+            "tags":         c["tags"],
+        }
         for c in chunks
     ]
     df = pd.DataFrame(rows)
     df["keep"]       = df["keep"].astype(bool)
+    df["type"]       = df["type"].astype(str)
     df["page"]       = df["page"].astype(int)
     df["source_pdf"] = df["source_pdf"].astype(str)
     df["text"]       = df["text"].astype(str)
@@ -337,6 +344,7 @@ with tab_parse:
                 key=f"chunk_editor_{st.session_state.parse_version}",
                 column_config={
                     "keep":       st.column_config.CheckboxColumn("Keep?", width="small"),
+                    "type":       st.column_config.TextColumn("Type", disabled=True, width="small"),
                     "source_pdf": st.column_config.TextColumn("Source PDF", disabled=True, width="medium"),
                     "page":       st.column_config.NumberColumn("Page", disabled=True, width="small", format="%d"),
                     "text":       st.column_config.TextColumn("Chunk Text", width="large"),
