@@ -5,7 +5,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 import pandas as pd
 
-# Load API keys from .env before importing config (config reads os.getenv)
 load_dotenv()
 
 import anthropic
@@ -13,12 +12,8 @@ import anthropic
 import config
 from utils.pdf_parser import extract_chunks_from_pdf, get_pdf_page_count
 from utils.embedder import commit_chunks, get_indexed_pdfs, delete_pdf_from_index, get_total_chunk_count
-from utils.retriever import retrieve, build_context_prompt
+from utils.retriever import retrieve, build_context_prompt, build_chat_messages
 
-# System prompt sent to Claude on every chat turn.
-# DECISION: "ONLY the provided context" prevents hallucination from Claude's
-# training data. If you want Claude to supplement with general pump knowledge
-# when the manuals don't cover something, remove that constraint here.
 _SYSTEM_PROMPT = """\
 You are ManualMan, a technical assistant for pump equipment manuals \
 (Goulds, Aurora, Gorman-Rupp, and similar manufacturers).
@@ -34,47 +29,41 @@ Rules:
 5. If the context lacks enough information, say so in one sentence. Do not guess.\
 """
 
+# ── Manual metadata fields ────────────────────────────────────────────────────
+_DOC_TYPES = [
+    "Installation Manual",
+    "Operation Manual",
+    "Parts Manual",
+    "Selection Guide",
+    "Technical Data Sheet",
+    "Other",
+]
 
+
+# ── Helper: render image chunks inline in chat ────────────────────────────────
 def _render_inline_images(chunks: list[dict]) -> None:
-    """
-    Display image chunks directly in the chat message — large and immediately
-    visible, no click required. Only shows chunks where the file exists on disk.
-    Called for both new messages and when re-rendering chat history.
-    """
     from utils.vision import IMAGE_TYPE_LABELS
     image_chunks = [
         c for c in chunks
         if c.get("chunk_type") == "image" and Path(c.get("image_path", "")).exists()
     ]
     for chunk in image_chunks:
-        label = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Diagram")
-        st.markdown(f"**{label}** — `{chunk['source_pdf']}`, Page {chunk['page_number']}")
+        label    = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Diagram")
+        citation = _format_citation(chunk)
+        st.markdown(f"**{label}** — {citation}")
         _, img_col, _ = st.columns([1, 5, 1])
         img_col.image(chunk["image_path"], use_container_width=True)
 
 
+# ── Helper: render text sources expander ─────────────────────────────────────
 def _render_sources(chunks: list[dict]) -> None:
-    """
-    Render a collapsible Sources section below an assistant message.
-
-    Image chunks (chunk_type="image") are displayed with the actual image
-    shown large and prominent. Text chunks show a text preview plus any
-    page-level images as smaller thumbnails.
-    """
-    if not chunks:
-        return
-
-    # Image chunks are shown inline above — only put text chunks in the expander
     text_chunks = [c for c in chunks if c.get("chunk_type") != "image"]
     if not text_chunks:
         return
-
     with st.expander(f"📎 Text sources ({len(text_chunks)} chunks)", expanded=False):
         for i, chunk in enumerate(text_chunks, 1):
             st.markdown(
-                f"**{i}.** `{chunk['source_pdf']}` · "
-                f"Page **{chunk['page_number']}** · "
-                f"relevance: {chunk['score']:.2f}"
+                f"**{i}.** {_format_citation(chunk)} · relevance: {chunk['score']:.2f}"
                 + (f" · `{chunk['tags']}`" if chunk.get("tags") else "")
             )
             preview = chunk["text"][:400] + ("…" if len(chunk["text"]) > 400 else "")
@@ -83,20 +72,25 @@ def _render_sources(chunks: list[dict]) -> None:
                 st.divider()
 
 
+def _format_citation(chunk: dict) -> str:
+    """Build a rich citation string from a chunk, including manual metadata."""
+    parts = [f"`{chunk['source_pdf']}`"]
+    meta_parts = []
+    if chunk.get("manufacturer"):  meta_parts.append(chunk["manufacturer"])
+    if chunk.get("product_line"):  meta_parts.append(chunk["product_line"])
+    if chunk.get("doc_type"):      meta_parts.append(chunk["doc_type"])
+    if chunk.get("revision"):      meta_parts.append(chunk["revision"])
+    if meta_parts:
+        parts.append(f"({' · '.join(meta_parts)})")
+    parts.append(f"Page **{chunk['page_number']}**")
+    return " · ".join(parts)
+
+
+# ── Helper: build DataFrame for chunk editor ──────────────────────────────────
 def _build_chunks_df(chunks: list[dict]) -> pd.DataFrame:
-    """
-    Convert chunk dicts from pdf_parser into a DataFrame for st.data_editor.
-    chunk_id and image_paths stay in session_state.parsed_chunks — not shown
-    in the table but needed when committing.
-    """
     rows = [
-        {
-            "keep":       c["keep"],
-            "source_pdf": c["source_pdf"],
-            "page":       c["page_number"],
-            "text":       c["text"],
-            "tags":       c["tags"],
-        }
+        {"keep": c["keep"], "source_pdf": c["source_pdf"],
+         "page": c["page_number"], "text": c["text"], "tags": c["tags"]}
         for c in chunks
     ]
     df = pd.DataFrame(rows)
@@ -116,7 +110,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Ensure data directories exist ─────────────────────────────────────────────
 for d in [config.UPLOADS_DIR, config.IMAGES_DIR, config.CHROMA_DIR]:
     Path(d).mkdir(parents=True, exist_ok=True)
 
@@ -127,8 +120,12 @@ if "parse_version"  not in st.session_state: st.session_state.parse_version  = 0
 if "edited_df"      not in st.session_state: st.session_state.edited_df      = None
 if "chat_history"   not in st.session_state: st.session_state.chat_history   = []
 if "last_committed" not in st.session_state: st.session_state.last_committed = 0
+if "pdf_metadata"   not in st.session_state: st.session_state.pdf_metadata   = {}
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.title("⚙️ ManualMan")
     st.caption("Pump Manual RAG Assistant")
@@ -146,11 +143,42 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Knowledge Base")
-    total = get_total_chunk_count()
+    total   = get_total_chunk_count()
     indexed = get_indexed_pdfs()
     st.metric("Indexed chunks", total)
     if indexed:
         st.caption(f"{len(indexed)} manual(s) in the index")
+
+    st.divider()
+    st.subheader("Chat Settings")
+
+    # Relevance threshold slider — adjustable at runtime without editing config.py.
+    # DECISION: default 0.45. Raise if answers feel off-topic (fewer but better
+    # chunks reach Claude). Lower if Claude says "not found" on things you know
+    # are in the manual.
+    relevance_threshold = st.slider(
+        "Relevance threshold",
+        min_value=0.0,
+        max_value=1.0,
+        value=config.MIN_RELEVANCE_SCORE,
+        step=0.05,
+        help=(
+            "Chunks below this similarity score are excluded before Claude sees them. "
+            "Raise toward 0.6 for more precise answers; lower toward 0.3 if valid "
+            "content is being missed."
+        ),
+    )
+
+    history_turns = st.select_slider(
+        "Conversation memory (turns)",
+        options=[0, 1, 2, 3, 5],
+        value=config.MAX_HISTORY_TURNS,
+        help=(
+            "How many past Q&A pairs are sent to Claude for follow-up context. "
+            "0 = no memory (each question is independent). Higher = better follow-ups "
+            "but more tokens per call."
+        ),
+    )
 
     st.divider()
     st.subheader("Upload Manuals")
@@ -172,7 +200,7 @@ with st.sidebar:
         "- Phase 1 — Scaffold ✅\n"
         "- Phase 2 — Parse & Edit ✅\n"
         "- Phase 3 — Embed & Index ✅\n"
-        "- Phase 4 — Chat ⏳\n"
+        "- Phase 4 — Chat ✅\n"
         "- Phase 5 — Manage Manuals ⏳"
     )
 
@@ -189,16 +217,44 @@ tab_parse, tab_chat, tab_manuals = st.tabs(
 with tab_parse:
     st.header("Parse & Edit Chunks")
     st.caption(
-        "Upload PDFs → parse into chunks → edit/tag → commit to knowledge base."
+        "Upload PDFs → fill in metadata → parse into chunks → "
+        "edit/tag → commit to knowledge base."
     )
 
     if not uploaded_files:
         st.info(
             "**Step 1:** Drop one or more PDFs in the sidebar uploader, "
-            "then click **Parse PDFs**."
+            "fill in the metadata fields, then click **Parse PDFs**."
         )
     else:
+        # ── Manual metadata form ───────────────────────────────────────────────
+        st.subheader("Manual Metadata")
+        st.caption(
+            "Optional but recommended — stored with every chunk and shown in citations.  \n"
+            "Fill in once per PDF before parsing."
+        )
+        for f in uploaded_files:
+            with st.expander(f"📄 {f.name}", expanded=True):
+                c1, c2 = st.columns(2)
+                manufacturer = c1.text_input(
+                    "Manufacturer", key=f"meta_{f.name}_mfr",
+                    placeholder="e.g. Goulds Pumps",
+                )
+                product_line = c2.text_input(
+                    "Product Line / Model", key=f"meta_{f.name}_prod",
+                    placeholder="e.g. 3196",
+                )
+                c3, c4 = st.columns(2)
+                doc_type = c3.selectbox(
+                    "Document Type", _DOC_TYPES, key=f"meta_{f.name}_dtype",
+                )
+                revision = c4.text_input(
+                    "Revision / Date", key=f"meta_{f.name}_rev",
+                    placeholder="e.g. Rev. 2023-Q1",
+                )
+
         # ── Parse button ───────────────────────────────────────────────────────
+        st.divider()
         col_btn, col_info = st.columns([2, 5])
         with col_btn:
             parse_clicked = st.button("🔍 Parse PDFs", type="primary", use_container_width=True)
@@ -210,6 +266,17 @@ with tab_parse:
             )
 
         if parse_clicked:
+            # Snapshot metadata widget values into session state at parse time
+            st.session_state.pdf_metadata = {
+                f.name: {
+                    "manufacturer": st.session_state.get(f"meta_{f.name}_mfr", ""),
+                    "product_line": st.session_state.get(f"meta_{f.name}_prod", ""),
+                    "doc_type":     st.session_state.get(f"meta_{f.name}_dtype", ""),
+                    "revision":     st.session_state.get(f"meta_{f.name}_rev", ""),
+                }
+                for f in uploaded_files
+            }
+
             all_chunks = []
             progress = st.progress(0, text="Starting…")
             for i, f in enumerate(uploaded_files):
@@ -226,17 +293,16 @@ with tab_parse:
             img_count = sum(len(c["image_paths"]) for c in all_chunks)
             st.success(
                 f"Extracted **{len(all_chunks)} chunks** from "
-                f"**{len(uploaded_files)} PDF(s)** — "
-                f"**{img_count} image(s)** saved."
+                f"**{len(uploaded_files)} PDF(s)** — **{img_count} image(s)** saved."
             )
 
         # ── Editable chunk table ───────────────────────────────────────────────
         if st.session_state.chunks_df is not None:
             st.subheader("Chunk Editor")
             st.caption(
-                "✏️ Double-click **Chunk Text** to edit (fix OCR errors, trim junk).  \n"
-                "🏷️ **Tags** — comma-separated labels, e.g. `model-number, curve-data`.  \n"
-                "☑️ Uncheck **Keep?** to exclude a chunk from indexing."
+                "✏️ Double-click **Chunk Text** to edit.  \n"
+                "🏷️ **Tags** — comma-separated, e.g. `model-number, curve-data`.  \n"
+                "☑️ Uncheck **Keep?** to exclude a chunk."
             )
 
             edited_df = st.data_editor(
@@ -255,10 +321,7 @@ with tab_parse:
                 num_rows="fixed",
             )
 
-            # Always keep edited_df in session state so the Commit button can
-            # access it regardless of which widget triggered the rerun.
             st.session_state.edited_df = edited_df
-
             keep_count  = int(edited_df["keep"].sum())
             total_count = len(edited_df)
             skipped     = total_count - keep_count
@@ -280,15 +343,12 @@ with tab_parse:
                     for i, img_path in enumerate(all_image_paths):
                         try:
                             p = Path(img_path)
-                            grid_cols[i % 4].image(
-                                img_path,
-                                use_container_width=True,
-                                caption=f"{p.parent.name} · {p.name}",
-                            )
+                            grid_cols[i % 4].image(img_path, use_container_width=True,
+                                                   caption=f"{p.parent.name} · {p.name}")
                         except Exception:
                             grid_cols[i % 4].caption(f"⚠️ Could not display {img_path}")
             else:
-                st.caption("No images extracted (text-only PDF, or all images were below the size threshold).")
+                st.caption("No images extracted (text-only PDF or all images below size threshold).")
 
             # ── Commit to Knowledge Base ───────────────────────────────────────
             st.divider()
@@ -298,15 +358,11 @@ with tab_parse:
                 if not voyage_ok:
                     st.error("Voyage AI key missing — add it to `.env` and restart.")
                 else:
-                    img_count = len({
-                        p
-                        for c in st.session_state.parsed_chunks
-                        for p in c["image_paths"]
-                    })
+                    img_count = len({p for c in st.session_state.parsed_chunks for p in c["image_paths"]})
                     st.caption(
                         f"Will embed **{keep_count} text chunk(s)** + classify & embed "
-                        f"**{img_count} image(s)** via Claude Vision → Voyage AI → ChromaDB.  \n"
-                        f"Re-committing the same PDF **replaces** its existing entries."
+                        f"**{img_count} image(s)**.  \n"
+                        f"Re-committing replaces existing entries for the same PDF."
                     )
 
             with col_commit:
@@ -331,6 +387,7 @@ with tab_parse:
                         counts = commit_chunks(
                             st.session_state.edited_df,
                             st.session_state.parsed_chunks,
+                            pdf_metadata=st.session_state.pdf_metadata,
                             progress_cb=_progress_cb,
                         )
                         commit_progress.empty()
@@ -357,25 +414,24 @@ with tab_chat:
     if total_chunks == 0:
         st.info(
             "No manuals indexed yet.  \n"
-            "Go to **Parse & Edit**, upload a PDF, parse it, and click **Commit to Knowledge Base**."
+            "Go to **Parse & Edit**, upload a PDF, parse it, and click **Commit**."
         )
     elif not anthropic_ok:
         st.error("Anthropic API key missing — add it to `.env` and restart.")
     else:
         st.caption(
-            f"Searching **{total_chunks} chunks** across "
-            f"**{len(indexed_pdfs)} manual(s)** · "
-            f"Top {config.TOP_K} chunks retrieved per query · "
+            f"Searching **{total_chunks} chunks** across **{len(indexed_pdfs)} manual(s)** · "
+            f"Threshold: **{relevance_threshold:.2f}** · "
+            f"Memory: **{history_turns} turn(s)** · "
             f"Model: `{config.ANTHROPIC_MODEL}`"
         )
 
-        # ── Clear chat button ──────────────────────────────────────────────────
         if st.session_state.chat_history:
             if st.button("🗑️ Clear chat", key="clear_chat"):
                 st.session_state.chat_history = []
                 st.rerun()
 
-        # ── Render existing chat history ───────────────────────────────────────
+        # ── Render chat history ────────────────────────────────────────────────
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
@@ -386,30 +442,45 @@ with tab_chat:
         # ── Chat input ─────────────────────────────────────────────────────────
         if question := st.chat_input("Ask about your pump manuals…"):
 
-            # Show the user's message immediately
             st.session_state.chat_history.append(
                 {"role": "user", "content": question, "chunks": None}
             )
             with st.chat_message("user"):
                 st.markdown(question)
 
-            # Retrieve relevant chunks, then stream Claude's answer
             with st.chat_message("assistant"):
+                # For follow-up questions, combine with the last user question
+                # to give retrieval more context (e.g. "what about stainless?"
+                # needs the previous topic to retrieve correctly).
+                past_user_qs = [
+                    m["content"] for m in st.session_state.chat_history
+                    if m["role"] == "user" and m["content"] != question
+                ]
+                retrieval_query = question
+                if past_user_qs and len(question.split()) < 12:
+                    # Short follow-up — prepend the previous question for context
+                    retrieval_query = f"{past_user_qs[-1]} {question}"
+
                 with st.spinner("Searching manuals…"):
-                    chunks = retrieve(question)
+                    chunks = retrieve(
+                        retrieval_query,
+                        min_score=relevance_threshold,
+                    )
 
                 if not chunks:
                     answer = (
-                        "I couldn't find any relevant content in the indexed manuals "
-                        "for that question. Try rephrasing, or check that the right "
-                        "manual is indexed."
+                        "I couldn't find relevant content above the current relevance "
+                        f"threshold ({relevance_threshold:.2f}). Try lowering the threshold "
+                        "in the sidebar, rephrasing, or checking that the right manual is indexed."
                     )
                     st.markdown(answer)
                 else:
-                    context = build_context_prompt(chunks)
-                    user_message = (
-                        f"Context from pump manuals:\n\n{context}"
-                        f"\n\n---\n\nQuestion: {question}"
+                    context  = build_context_prompt(chunks)
+                    messages = build_chat_messages(
+                        question,
+                        context,
+                        # Pass history minus the question we just added
+                        st.session_state.chat_history[:-1],
                     )
 
                     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
@@ -419,16 +490,13 @@ with tab_chat:
                             model=config.ANTHROPIC_MODEL,
                             max_tokens=config.MAX_TOKENS,
                             system=_SYSTEM_PROMPT,
-                            messages=[{"role": "user", "content": user_message}],
+                            messages=messages,
                         ) as stream:
                             for text in stream.text_stream:
                                 yield text
 
                     answer = st.write_stream(_stream_response())
 
-            # Save to history, then rerun so the history loop renders images.
-            # Images after write_stream don't render reliably in the same pass —
-            # st.rerun() lets the history loop handle it cleanly every time.
             st.session_state.chat_history.append(
                 {"role": "assistant", "content": answer, "chunks": chunks}
             )
@@ -436,7 +504,7 @@ with tab_chat:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — Manuals (basic version, full management in Phase 5)
+# TAB 3 — Manuals
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_manuals:
     st.header("📚 Indexed Manuals")
@@ -447,8 +515,16 @@ with tab_manuals:
         st.info("No manuals indexed yet — use Parse & Edit to get started.")
     else:
         for entry in indexed_pdfs:
-            col_name, col_count, col_del = st.columns([4, 2, 1])
+            col_name, col_meta, col_count, col_del = st.columns([3, 3, 2, 1])
             col_name.write(f"📄 {entry['source_pdf']}")
+            # Show manual metadata if present
+            meta_str = " · ".join(filter(None, [
+                entry.get("manufacturer", ""),
+                entry.get("product_line", ""),
+                entry.get("doc_type", ""),
+                entry.get("revision", ""),
+            ]))
+            col_meta.caption(meta_str or "—")
             col_count.caption(f"{entry['text_chunks']} text · {entry['image_chunks']} img")
             if col_del.button("🗑️", key=f"del_{entry['source_pdf']}", help="Remove from index"):
                 n = delete_pdf_from_index(entry["source_pdf"])
@@ -458,6 +534,5 @@ with tab_manuals:
         st.divider()
         st.caption(
             f"Total: **{get_total_chunk_count()} chunks** across "
-            f"**{len(indexed_pdfs)} manual(s)**  \n"
-            "Full management features (re-process, settings) coming in Phase 5."
+            f"**{len(indexed_pdfs)} manual(s)**"
         )

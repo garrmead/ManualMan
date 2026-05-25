@@ -22,6 +22,16 @@ CHUNK_OVERLAP = 64
 # context; lower to 3 if responses feel padded or you hit token-limit errors.
 TOP_K = 5
 
+# Chunks scoring below this cosine similarity are dropped before Claude sees
+# them. Raise toward 0.6 if answers feel off-topic; lower toward 0.3 if valid
+# content is being missed. Also adjustable via the sidebar slider at runtime.
+MIN_RELEVANCE_SCORE = 0.45
+
+# ── Conversation memory ───────────────────────────────────────────────────────
+# Number of past question/answer pairs sent to Claude for follow-up context.
+# Raise if conversations run long; lower to save tokens.
+MAX_HISTORY_TURNS = 3
+
 # ── Embeddings ────────────────────────────────────────────────────────────────
 VOYAGE_MODEL        = "voyage-3"   # Voyage AI embedding model
 EMBEDDING_DIMENSION = 1024         # voyage-3 output size (don't change)

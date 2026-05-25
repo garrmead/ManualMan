@@ -90,6 +90,7 @@ def _embed_and_upsert(
 def commit_chunks(
     edited_df,
     parsed_chunks: list[dict],
+    pdf_metadata: dict | None = None,
     progress_cb: Callable[[float, str], None] | None = None,
     classify_images: bool = True,
 ) -> dict:
@@ -139,6 +140,10 @@ def commit_chunks(
     voyage_client = voyageai.Client(api_key=config.VOYAGE_API_KEY)
 
     # ── Step 3: embed text chunks ─────────────────────────────────────────────
+    # pdf_metadata is a dict keyed by filename, e.g.:
+    # {"Goulds_3196.pdf": {"manufacturer": "Goulds", "product_line": "3196", ...}}
+    pdf_meta = pdf_metadata or {}
+
     text_items = [
         {
             "chunk_id": c["chunk_id"],
@@ -148,8 +153,12 @@ def commit_chunks(
                 "source_pdf":  c["source_pdf"],
                 "page_number": c["page_number"],
                 "tags":        c["tags"],
-                # Image paths attached to this page — used in Phase 4 sources panel
                 "image_paths": json.dumps(c["image_paths"]),
+                # Manual-level metadata — merge in from pdf_metadata if present
+                **{
+                    k: pdf_meta.get(c["source_pdf"], {}).get(k, "")
+                    for k in ("manufacturer", "product_line", "doc_type", "revision")
+                },
             },
         }
         for c in keep_chunks
@@ -210,6 +219,10 @@ def commit_chunks(
                         "image_type":  img["image_type"],
                         "tags":        "",
                         "image_paths": json.dumps([img["image_path"]]),
+                        **{
+                            k: pdf_meta.get(img["source_pdf"], {}).get(k, "")
+                            for k in ("manufacturer", "product_line", "doc_type", "revision")
+                        },
                     },
                 }
                 for img in technical
@@ -242,15 +255,19 @@ def get_indexed_pdfs() -> list[dict]:
             name       = meta.get("source_pdf", "Unknown")
             chunk_type = meta.get("chunk_type", "text")
             if name not in stats:
-                stats[name] = {"text_chunks": 0, "image_chunks": 0}
+                stats[name] = {
+                    "text_chunks":  0,
+                    "image_chunks": 0,
+                    "manufacturer": meta.get("manufacturer", ""),
+                    "product_line": meta.get("product_line", ""),
+                    "doc_type":     meta.get("doc_type", ""),
+                    "revision":     meta.get("revision", ""),
+                }
             if chunk_type == "image":
                 stats[name]["image_chunks"] += 1
             else:
                 stats[name]["text_chunks"] += 1
-        return [
-            {"source_pdf": k, **v}
-            for k, v in sorted(stats.items())
-        ]
+        return [{"source_pdf": k, **v} for k, v in sorted(stats.items())]
     except Exception:
         return []
 
