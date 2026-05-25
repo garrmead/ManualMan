@@ -7,6 +7,8 @@ import pandas as pd
 
 load_dotenv()
 
+import re
+
 import anthropic
 
 import config
@@ -40,14 +42,39 @@ _DOC_TYPES = [
 ]
 
 
+def _cited_source_indices(answer_text: str) -> set[int]:
+    """
+    Parse Claude's answer for [Source N] references and return the set of
+    1-based indices cited. Used to display only images Claude actually referenced
+    rather than every image chunk that was retrieved.
+    """
+    return {int(n) for n in re.findall(r"\[Source\s+(\d+)\]", answer_text, re.IGNORECASE)}
+
+
 # ── Helper: render image chunks inline in chat ────────────────────────────────
-def _render_inline_images(chunks: list[dict]) -> None:
+def _render_inline_images(chunks: list[dict], answer_text: str = "") -> None:
+    """
+    Display image chunks inline in the chat message.
+
+    If answer_text is provided, only images whose source number Claude
+    actually cited are shown. This prevents all retrieved curves from
+    appearing when only one was relevant to the answer.
+    """
     from utils.vision import IMAGE_TYPE_LABELS
-    image_chunks = [
-        c for c in chunks
-        if c.get("chunk_type") == "image" and Path(c.get("image_path", "")).exists()
-    ]
-    for chunk in image_chunks:
+
+    cited = _cited_source_indices(answer_text) if answer_text else set()
+
+    for source_num, chunk in enumerate(chunks, start=1):
+        if chunk.get("chunk_type") != "image":
+            continue
+        if not Path(chunk.get("image_path", "")).exists():
+            continue
+        # If we know which sources were cited, skip un-cited image chunks.
+        # If answer_text is empty (e.g. history render without stored text),
+        # fall back to showing all image chunks.
+        if cited and source_num not in cited:
+            continue
+
         label    = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Diagram")
         citation = _format_citation(chunk)
         st.markdown(f"**{label}** — {citation}")
@@ -436,7 +463,8 @@ with tab_chat:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
                 if msg["role"] == "assistant" and msg.get("chunks"):
-                    _render_inline_images(msg["chunks"])
+                    # Pass the stored answer text so only cited images appear
+                    _render_inline_images(msg["chunks"], answer_text=msg["content"])
                     _render_sources(msg["chunks"])
 
         # ── Chat input ─────────────────────────────────────────────────────────
@@ -498,7 +526,7 @@ with tab_chat:
                     answer = st.write_stream(_stream_response())
 
             st.session_state.chat_history.append(
-                {"role": "assistant", "content": answer, "chunks": chunks}
+                {"role": "assistant", "content": answer, "chunks": chunks or []}
             )
             st.rerun()
 

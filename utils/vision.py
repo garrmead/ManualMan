@@ -87,9 +87,12 @@ TYPE OPTIONS:
 
 Respond in EXACTLY this two-line format — no extra text:
 TYPE: <one type from the list above>
-DESCRIPTION: <2-5 sentences. For technical images, include ALL visible specs: model numbers, \
-sizes, flow rates (GPM), head (ft), pressures (PSI), impeller diameters, shaft sizes, RPM, \
-dimensions (in/mm), materials, connection sizes. For photos/logos, one brief sentence is enough.>\
+DESCRIPTION: <2-5 sentences. ALWAYS lead with the most specific identifier visible: \
+pump size designation (e.g. "1.5x3-13", "3x4-13"), model number, or series name. \
+Then include all other visible specs: flow rates (GPM), head (ft), pressures (PSI), \
+impeller diameters (in), shaft sizes, RPM, dimensions (in/mm), materials, connection sizes. \
+The size designation is the most important field — a user will search for "1.5x3-13 curve" \
+and must find exactly this image. For photos/logos, one brief sentence is enough.>\
 """
 
 
