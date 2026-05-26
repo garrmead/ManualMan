@@ -524,6 +524,7 @@ if "chat_history"       not in st.session_state: st.session_state.chat_history  
 if "last_committed"     not in st.session_state: st.session_state.last_committed     = 0
 if "pdf_metadata"       not in st.session_state: st.session_state.pdf_metadata       = {}
 if "pending_question"   not in st.session_state: st.session_state.pending_question   = ""
+if "excluded_images"    not in st.session_state: st.session_state.excluded_images    = set()
 
 # ── API key guard — fail loudly before rendering anything else ────────────────
 _voyage_ok    = bool(config.VOYAGE_API_KEY)
@@ -726,8 +727,9 @@ with tab_parse:
 
             st.session_state.parsed_chunks = all_chunks
             st.session_state.chunks_df     = _build_chunks_df(all_chunks)
-            st.session_state.parse_version += 1
-            st.session_state.edited_df     = None
+            st.session_state.parse_version  += 1
+            st.session_state.edited_df      = None
+            st.session_state.excluded_images = set()
 
             img_count = sum(len(c["image_paths"]) for c in all_chunks)
             st.success(
@@ -770,7 +772,7 @@ with tab_parse:
                 + (f" · {skipped} excluded" if skipped else "")
             )
 
-            # ── Image gallery ──────────────────────────────────────────────────
+            # ── Image gallery with exclusion checkboxes ────────────────────────
             all_image_paths: list[str] = []
             for chunk in st.session_state.parsed_chunks:
                 for p in chunk["image_paths"]:
@@ -778,15 +780,45 @@ with tab_parse:
                         all_image_paths.append(p)
 
             if all_image_paths:
-                with st.expander(f"📷 Extracted Images ({len(all_image_paths)})", expanded=False):
+                excluded_count = len(st.session_state.excluded_images & set(all_image_paths))
+                with st.expander(
+                    f"Extracted Images ({len(all_image_paths)}"
+                    + (f" · {excluded_count} excluded" if excluded_count else "")
+                    + ")",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Uncheck images to exclude them from indexing. "
+                        "Blurry or solid-color images are usually background fills — safe to exclude."
+                    )
+                    # Select/deselect all buttons
+                    sel_col1, sel_col2, _ = st.columns([1, 1, 5])
+                    if sel_col1.button("Exclude all", key="excl_all", use_container_width=True):
+                        st.session_state.excluded_images = set(all_image_paths)
+                        st.rerun()
+                    if sel_col2.button("Include all", key="incl_all", use_container_width=True):
+                        st.session_state.excluded_images = set()
+                        st.rerun()
+
+                    st.divider()
                     grid_cols = st.columns(4)
                     for i, img_path in enumerate(all_image_paths):
+                        col = grid_cols[i % 4]
                         try:
                             p = Path(img_path)
-                            grid_cols[i % 4].image(img_path, use_container_width=True,
-                                                   caption=f"{p.parent.name} · {p.name}")
+                            col.image(img_path, use_container_width=True)
+                            included = col.checkbox(
+                                "Include",
+                                value=(img_path not in st.session_state.excluded_images),
+                                key=f"img_include_{i}",
+                            )
+                            col.caption(p.name)
+                            if included:
+                                st.session_state.excluded_images.discard(img_path)
+                            else:
+                                st.session_state.excluded_images.add(img_path)
                         except Exception:
-                            grid_cols[i % 4].caption(f"⚠️ Could not display {img_path}")
+                            col.caption(f"⚠️ {img_path}")
             else:
                 st.caption("No images extracted (text-only PDF or all images below size threshold).")
 
@@ -798,11 +830,13 @@ with tab_parse:
                 if not _voyage_ok:
                     st.error("Voyage AI key missing — add it to `.env` and restart.")
                 else:
-                    img_count = len({p for c in st.session_state.parsed_chunks for p in c["image_paths"]})
+                    all_imgs  = {p for c in st.session_state.parsed_chunks for p in c["image_paths"]}
+                    incl_imgs = all_imgs - st.session_state.excluded_images
                     st.caption(
                         f"Will embed **{keep_count} text chunk(s)** + classify & embed "
-                        f"**{img_count} image(s)**.  \n"
-                        f"Re-committing replaces existing entries for the same PDF."
+                        f"**{len(incl_imgs)} image(s)**"
+                        + (f" ({len(st.session_state.excluded_images)} excluded)" if st.session_state.excluded_images else "")
+                        + ".  \nRe-committing replaces existing entries for the same PDF."
                     )
 
             with col_commit:
@@ -829,6 +863,7 @@ with tab_parse:
                             st.session_state.parsed_chunks,
                             pdf_metadata=st.session_state.pdf_metadata,
                             progress_cb=_progress_cb,
+                            excluded_images=st.session_state.excluded_images,
                         )
                         commit_progress.empty()
                         st.session_state.last_committed = counts["text_chunks"]

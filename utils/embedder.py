@@ -93,6 +93,7 @@ def commit_chunks(
     pdf_metadata: dict | None = None,
     progress_cb: Callable[[float, str], None] | None = None,
     classify_images: bool = True,
+    excluded_images: set | None = None,
 ) -> dict:
     """
     Embed and store all 'keep' text chunks plus their associated images.
@@ -177,11 +178,12 @@ def commit_chunks(
     if classify_images:
         # Collect unique images from the keep chunks (same image may appear on
         # multiple chunks that share a page — deduplicate by path).
+        _excluded = excluded_images or set()
         seen_paths: set[str] = set()
         unique_images: list[dict] = []
         for c in keep_chunks:
             for img_path in c["image_paths"]:
-                if img_path not in seen_paths:
+                if img_path not in seen_paths and img_path not in _excluded:
                     seen_paths.add(img_path)
                     unique_images.append({
                         "image_path":  img_path,
