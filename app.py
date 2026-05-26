@@ -380,7 +380,11 @@ Rules:
 4. Some sources are IMAGE chunks (performance curves, drawings, etc.). \
    Reference them briefly, e.g. "See [Source 2]." The image displays automatically — \
    do not describe it in detail.
-5. If the context lacks enough information, say so in one sentence. Do not guess.\
+5. If the context lacks enough information, say so in one sentence. Do not guess.
+6. After your answer, on a new line write exactly: \
+   FOLLOW-UPS: <question 1> | <question 2> | <question 3> \
+   These are short suggested follow-up questions (max 10 words each) the user might ask next. \
+   If the answer was "I don't know", skip the FOLLOW-UPS line.\
 """
 
 # ── Manual metadata fields ────────────────────────────────────────────────────
@@ -395,12 +399,22 @@ _DOC_TYPES = [
 
 
 def _cited_source_indices(answer_text: str) -> set[int]:
-    """
-    Parse Claude's answer for [Source N] references and return the set of
-    1-based indices cited. Used to display only images Claude actually referenced
-    rather than every image chunk that was retrieved.
-    """
+    """Return 1-based source indices Claude cited in its answer."""
     return {int(n) for n in re.findall(r"\[Source\s+(\d+)\]", answer_text, re.IGNORECASE)}
+
+
+def _parse_follow_ups(raw_answer: str) -> tuple[str, list[str]]:
+    """
+    Strip the FOLLOW-UPS line Claude appends and return (clean_answer, follow_up_list).
+    If no FOLLOW-UPS line is present, follow_up_list is empty.
+    """
+    match = re.search(r"\n*FOLLOW-UPS?:\s*(.+?)$", raw_answer, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return raw_answer, []
+    clean = raw_answer[: match.start()].strip()
+    parts = [q.strip().lstrip("•*-").strip() for q in re.split(r"\||\n", match.group(1))]
+    follow_ups = [q for q in parts if q][:3]
+    return clean, follow_ups
 
 
 # ── Helper: render image chunks inline in chat ────────────────────────────────
@@ -502,13 +516,28 @@ for d in [config.UPLOADS_DIR, config.IMAGES_DIR, config.CHROMA_DIR]:
     Path(d).mkdir(parents=True, exist_ok=True)
 
 # ── Session state defaults ────────────────────────────────────────────────────
-if "parsed_chunks"  not in st.session_state: st.session_state.parsed_chunks  = []
-if "chunks_df"      not in st.session_state: st.session_state.chunks_df      = None
-if "parse_version"  not in st.session_state: st.session_state.parse_version  = 0
-if "edited_df"      not in st.session_state: st.session_state.edited_df      = None
-if "chat_history"   not in st.session_state: st.session_state.chat_history   = []
-if "last_committed" not in st.session_state: st.session_state.last_committed = 0
-if "pdf_metadata"   not in st.session_state: st.session_state.pdf_metadata   = {}
+if "parsed_chunks"      not in st.session_state: st.session_state.parsed_chunks      = []
+if "chunks_df"          not in st.session_state: st.session_state.chunks_df          = None
+if "parse_version"      not in st.session_state: st.session_state.parse_version      = 0
+if "edited_df"          not in st.session_state: st.session_state.edited_df          = None
+if "chat_history"       not in st.session_state: st.session_state.chat_history       = []
+if "last_committed"     not in st.session_state: st.session_state.last_committed     = 0
+if "pdf_metadata"       not in st.session_state: st.session_state.pdf_metadata       = {}
+if "pending_question"   not in st.session_state: st.session_state.pending_question   = ""
+
+# ── API key guard — fail loudly before rendering anything else ────────────────
+_voyage_ok    = bool(config.VOYAGE_API_KEY)
+_anthropic_ok = bool(config.ANTHROPIC_API_KEY)
+if not _voyage_ok or not _anthropic_ok:
+    missing = []
+    if not _voyage_ok:    missing.append("VOYAGE_API_KEY")
+    if not _anthropic_ok: missing.append("ANTHROPIC_API_KEY")
+    st.error(
+        f"**Missing API keys:** {', '.join(missing)}  \n"
+        "Add them to your `.env` file and restart the app.  \n"
+        "```\nVOYAGE_API_KEY=your-key-here\nANTHROPIC_API_KEY=your-key-here\n```"
+    )
+    st.stop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -553,22 +582,16 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    voyage_ok    = bool(config.VOYAGE_API_KEY)
-    anthropic_ok = bool(config.ANTHROPIC_API_KEY)
-
     # ── API status ─────────────────────────────────────────────────────────────
     st.subheader("API Status")
     st.markdown(
         f"<div style='font-size:12px;line-height:1.8;'>"
-        f"{'<span style=\"color:#4ade80\">●</span>' if voyage_ok    else '<span style=\"color:#f87171\">●</span>'}"
-        f" <span style='color:#a1a1aa;'>Voyage AI</span>&nbsp;&nbsp;"
-        f"{'<span style=\"color:#4ade80\">●</span>' if anthropic_ok else '<span style=\"color:#f87171\">●</span>'}"
-        f" <span style='color:#a1a1aa;'>Anthropic</span>"
+        f"<span style='color:#4ade80;'>●</span> <span style='color:#a1a1aa;'>Voyage AI</span>"
+        f"&nbsp;&nbsp;"
+        f"<span style='color:#4ade80;'>●</span> <span style='color:#a1a1aa;'>Anthropic</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
-    if not voyage_ok or not anthropic_ok:
-        st.warning("Add your keys to `.env` and restart.")
 
     # ── Knowledge base ─────────────────────────────────────────────────────────
     st.subheader("Knowledge Base")
@@ -772,7 +795,7 @@ with tab_parse:
             col_commit, col_info = st.columns([2, 5])
 
             with col_info:
-                if not voyage_ok:
+                if not _voyage_ok:
                     st.error("Voyage AI key missing — add it to `.env` and restart.")
                 else:
                     img_count = len({p for c in st.session_state.parsed_chunks for p in c["image_paths"]})
@@ -786,7 +809,7 @@ with tab_parse:
                 commit_clicked = st.button(
                     "💾 Commit to Knowledge Base",
                     type="primary",
-                    disabled=(not voyage_ok or keep_count == 0),
+                    disabled=(not _voyage_ok or keep_count == 0),
                     use_container_width=True,
                     key="commit_btn",
                 )
@@ -822,6 +845,17 @@ with tab_parse:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — Chat
 # ══════════════════════════════════════════════════════════════════════════════
+
+# Suggested starter prompts shown when the knowledge base is populated
+_SUGGESTED_PROMPTS = [
+    "Show me the performance curve",
+    "What are the installation torque specs?",
+    "What materials are available for wetted parts?",
+    "Show me the dimensional drawing",
+    "What is the max operating pressure?",
+    "What fault codes are covered in this manual?",
+]
+
 with tab_chat:
     st.markdown(
         "<h2 style='margin-top:0;margin-bottom:0.25rem;'>Chat</h2>",
@@ -832,14 +866,16 @@ with tab_chat:
     indexed_pdfs = get_indexed_pdfs()
 
     if total_chunks == 0:
-        st.info(
-            "No manuals indexed yet. "
-            "Go to **Parse & Edit**, upload a PDF, parse it, and click **Commit**."
+        st.markdown(
+            "<div style='text-align:center;padding:48px 0;'>"
+            "<div style='font-size:2rem;margin-bottom:12px;'>📂</div>"
+            "<div style='font-size:15px;font-weight:600;color:#f5f5f7;margin-bottom:6px;'>No manuals indexed yet</div>"
+            "<div style='font-size:13px;color:#a1a1aa;'>Go to <b>Parse &amp; Edit</b>, upload a PDF, and click <b>Commit to Knowledge Base</b>.</div>"
+            "</div>",
+            unsafe_allow_html=True,
         )
-    elif not anthropic_ok:
-        st.error("Anthropic API key missing — add it to `.env` and restart.")
     else:
-        # Status bar
+        # ── Status bar ─────────────────────────────────────────────────────────
         st.markdown(
             f"<div style='display:flex;gap:16px;align-items:center;"
             f"padding:8px 12px;background:#1a1a1e;border:1px solid #2a2a2f;"
@@ -855,47 +891,78 @@ with tab_chat:
             unsafe_allow_html=True,
         )
 
+        # ── Clear chat button ───────────────────────────────────────────────────
         if st.session_state.chat_history:
             if st.button("Clear chat", key="clear_chat"):
                 st.session_state.chat_history = []
+                st.session_state.pending_question = ""
                 st.rerun()
+
+        # ── Suggested prompts (shown only when chat is empty) ──────────────────
+        if not st.session_state.chat_history:
+            st.markdown(
+                "<div style='margin-bottom:12px;'>"
+                "<span class='mm-label'>Try asking</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            prompt_cols = st.columns(3)
+            for i, prompt in enumerate(_SUGGESTED_PROMPTS):
+                if prompt_cols[i % 3].button(
+                    prompt,
+                    key=f"suggested_{i}",
+                    use_container_width=True,
+                ):
+                    st.session_state.pending_question = prompt
+                    st.rerun()
 
         # ── Render chat history ────────────────────────────────────────────────
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
                 if msg["role"] == "assistant" and msg.get("chunks"):
-                    # Pass the stored answer text so only cited images appear
                     _render_inline_images(msg["chunks"], answer_text=msg["content"])
                     _render_sources(msg["chunks"])
+                # Follow-up chips after assistant messages
+                if msg["role"] == "assistant" and msg.get("follow_ups"):
+                    st.markdown(
+                        "<div class='mm-label' style='margin-top:12px;margin-bottom:6px;'>Follow up</div>",
+                        unsafe_allow_html=True,
+                    )
+                    fu_cols = st.columns(len(msg["follow_ups"]))
+                    for fi, fu in enumerate(msg["follow_ups"]):
+                        if fu_cols[fi].button(fu, key=f"fu_{id(msg)}_{fi}", use_container_width=True):
+                            st.session_state.pending_question = fu
+                            st.rerun()
 
-        # ── Chat input ─────────────────────────────────────────────────────────
-        if question := st.chat_input("Ask anything across your manuals…"):
+        # ── Consume pending question or wait for input ─────────────────────────
+        question = None
+        if st.session_state.pending_question:
+            question = st.session_state.pending_question
+            st.session_state.pending_question = ""
 
+        typed = st.chat_input("Ask anything across your manuals…")
+        if typed:
+            question = typed
+
+        if question:
             st.session_state.chat_history.append(
-                {"role": "user", "content": question, "chunks": None}
+                {"role": "user", "content": question, "chunks": None, "follow_ups": []}
             )
             with st.chat_message("user"):
                 st.markdown(question)
 
             with st.chat_message("assistant"):
-                # For follow-up questions, combine with the last user question
-                # to give retrieval more context (e.g. "what about stainless?"
-                # needs the previous topic to retrieve correctly).
                 past_user_qs = [
                     m["content"] for m in st.session_state.chat_history
                     if m["role"] == "user" and m["content"] != question
                 ]
                 retrieval_query = question
                 if past_user_qs and len(question.split()) < 12:
-                    # Short follow-up — prepend the previous question for context
                     retrieval_query = f"{past_user_qs[-1]} {question}"
 
                 with st.spinner("Searching manuals…"):
-                    chunks = retrieve(
-                        retrieval_query,
-                        min_score=relevance_threshold,
-                    )
+                    chunks = retrieve(retrieval_query, min_score=relevance_threshold)
 
                 if not chunks:
                     answer = (
@@ -904,12 +971,12 @@ with tab_chat:
                         "in the sidebar, rephrasing, or checking that the right manual is indexed."
                     )
                     st.markdown(answer)
+                    follow_ups = []
                 else:
                     context  = build_context_prompt(chunks)
                     messages = build_chat_messages(
                         question,
                         context,
-                        # Pass history minus the question we just added
                         st.session_state.chat_history[:-1],
                     )
 
@@ -925,47 +992,114 @@ with tab_chat:
                             for text in stream.text_stream:
                                 yield text
 
-                    answer = st.write_stream(_stream_response())
+                    raw_answer = st.write_stream(_stream_response())
+                    answer, follow_ups = _parse_follow_ups(raw_answer)
 
-            st.session_state.chat_history.append(
-                {"role": "assistant", "content": answer, "chunks": chunks or []}
-            )
+            st.session_state.chat_history.append({
+                "role":       "assistant",
+                "content":    answer,
+                "chunks":     chunks or [],
+                "follow_ups": follow_ups,
+            })
             st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — Manuals
 # ══════════════════════════════════════════════════════════════════════════════
+
+# Color palettes for manual cover cards (cycles through these)
+_COVER_PALETTES = [
+    ("#ff7849", "#1a0f0a"),  # orange
+    ("#3b82f6", "#0a0f1a"),  # blue
+    ("#10b981", "#0a1a12"),  # green
+    ("#f59e0b", "#1a150a"),  # amber
+    ("#8b5cf6", "#120a1a"),  # purple
+    ("#ef4444", "#1a0a0a"),  # red
+]
+
 with tab_manuals:
     st.markdown(
         "<h2 style='margin-top:0;margin-bottom:0.25rem;'>Indexed Manuals</h2>"
-        "<p style='color:#a1a1aa;font-size:13px;margin-bottom:1.5rem;'>Manuals currently in the knowledge base.</p>",
+        "<p style='color:#a1a1aa;font-size:13px;margin-bottom:1.5rem;'>"
+        "Manuals currently in your knowledge base.</p>",
         unsafe_allow_html=True,
     )
 
     indexed_pdfs = get_indexed_pdfs()
     if not indexed_pdfs:
-        st.info("No manuals indexed yet — use Parse & Edit to get started.")
+        st.markdown(
+            "<div style='text-align:center;padding:48px 0;'>"
+            "<div style='font-size:2rem;margin-bottom:12px;'>📚</div>"
+            "<div style='font-size:15px;font-weight:600;color:#f5f5f7;margin-bottom:6px;'>No manuals indexed</div>"
+            "<div style='font-size:13px;color:#a1a1aa;'>Upload PDFs in <b>Parse &amp; Edit</b> to build your knowledge base.</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
     else:
-        for entry in indexed_pdfs:
-            col_name, col_meta, col_count, col_del = st.columns([3, 3, 2, 1])
-            col_name.write(f"📄 {entry['source_pdf']}")
-            # Show manual metadata if present
-            meta_str = " · ".join(filter(None, [
-                entry.get("manufacturer", ""),
-                entry.get("product_line", ""),
-                entry.get("doc_type", ""),
-                entry.get("revision", ""),
-            ]))
-            col_meta.caption(meta_str or "—")
-            col_count.caption(f"{entry['text_chunks']} text · {entry['image_chunks']} img")
-            if col_del.button("🗑️", key=f"del_{entry['source_pdf']}", help="Remove from index"):
-                n = delete_pdf_from_index(entry["source_pdf"])
-                st.success(f"Removed {n} chunks for **{entry['source_pdf']}**.")
-                st.rerun()
+        # Card grid — 3 per row
+        cols = st.columns(3)
+        for i, entry in enumerate(indexed_pdfs):
+            accent, bg = _COVER_PALETTES[i % len(_COVER_PALETTES)]
+            manufacturer = entry.get("manufacturer", "")
+            product_line = entry.get("product_line", "")
+            doc_type     = entry.get("doc_type", "")
+            revision     = entry.get("revision", "")
+            title        = product_line or entry["source_pdf"]
+            subtitle     = manufacturer or doc_type or ""
+            meta_tags    = " · ".join(filter(None, [doc_type, revision]))
+            chunk_label  = f"{entry['text_chunks']} text · {entry['image_chunks']} img"
+
+            with cols[i % 3]:
+                st.markdown(
+                    f"""
+                    <div style="
+                        border:1px solid #2a2a2f;border-radius:8px;
+                        overflow:hidden;margin-bottom:16px;
+                        box-shadow:0 1px 0 rgba(0,0,0,0.08),2px 2px 0 #2a2a2f;
+                        background:#1a1a1e;
+                    ">
+                      <!-- Cover spine -->
+                      <div style="
+                        height:6px;background:{accent};
+                      "></div>
+                      <!-- Cover body -->
+                      <div style="
+                        padding:16px;
+                        background:repeating-linear-gradient(
+                          135deg,{bg} 0px,{bg} 10px,
+                          rgba(255,255,255,0.01) 10px,rgba(255,255,255,0.01) 20px
+                        );
+                      ">
+                        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
+                          text-transform:uppercase;letter-spacing:0.12em;
+                          color:{accent};margin-bottom:6px;">{subtitle or "Manual"}</div>
+                        <div style="font-size:14px;font-weight:600;color:#f5f5f7;
+                          line-height:1.3;margin-bottom:8px;">{title}</div>
+                        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;
+                          color:#6b6b74;">{meta_tags or entry['source_pdf']}</div>
+                      </div>
+                      <!-- Footer -->
+                      <div style="
+                        padding:8px 16px;border-top:1px solid #2a2a2f;
+                        display:flex;justify-content:space-between;align-items:center;
+                      ">
+                        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;
+                          color:#6b6b74;">{chunk_label}</span>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button("Remove", key=f"del_{entry['source_pdf']}", use_container_width=True):
+                    n = delete_pdf_from_index(entry["source_pdf"])
+                    st.success(f"Removed {n} chunks for **{entry['source_pdf']}**.")
+                    st.rerun()
 
         st.divider()
-        st.caption(
-            f"Total: **{get_total_chunk_count()} chunks** across "
-            f"**{len(indexed_pdfs)} manual(s)**"
+        total_all = get_total_chunk_count()
+        st.markdown(
+            f"<span class='mm-mono' style='color:#6b6b74;'>"
+            f"{total_all} total chunks · {len(indexed_pdfs)} manual(s)</span>",
+            unsafe_allow_html=True,
         )
