@@ -26,49 +26,71 @@ _CSS = """
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Serif:ital@0;1&display=swap');
 
 :root {
-  --bg:             #111113;
-  --bg-2:           #1a1a1e;
-  --surface:        #1f1f23;
-  --surface-2:      #252529;
-  --fg:             #f5f5f7;
-  --fg-2:           #a1a1aa;
-  --fg-3:           #6b6b74;
-  --border:         #2a2a2f;
-  --border-strong:  #3a3a40;
-  --accent:         #ff7849;
-  --accent-dim:     rgba(255,120,73,0.15);
-  --accent-glow:    rgba(255,120,73,0.08);
-  --ts-color:       #f59e0b;
-  --ts-dim:         rgba(245,158,11,0.15);
-  --ok-color:       #4ade80;
-  --radius-sm:      4px;
-  --radius-md:      6px;
-  --radius-lg:      8px;
-  --radius-pill:    999px;
-  --shadow-card:    0 1px 0 rgba(0,0,0,0.08), 2px 2px 0 var(--border);
-  --shadow-float:   0 8px 24px rgba(0,0,0,0.24), 0 2px 6px rgba(0,0,0,0.16);
+  --bg:            oklch(0.18 0.005 250);
+  --surface:       oklch(0.22 0.006 250);
+  --surface-2:     oklch(0.25 0.006 250);
+  --text:          oklch(0.96 0.003 250);
+  --text-2:        oklch(0.72 0.005 250);
+  --text-3:        oklch(0.52 0.006 250);
+  --border:        oklch(0.32 0.006 250);
+  --border-strong: oklch(0.42 0.006 250);
+  --accent:        oklch(0.78 0.16 250);
+  --accent-strong: oklch(0.78 0.16 250);
+  --accent-10:     oklch(0.28 0.04 250);
+  --accent-30:     oklch(0.40 0.06 250);
+  --accent-on:     #fff;
+  /* backward compat aliases */
+  --bg-2: var(--surface);
+  --fg:   var(--text);
+  --fg-2: var(--text-2);
+  --fg-3: var(--text-3);
+  /* semantic */
+  --ts-color: #f59e0b;
+  --ts-dim: rgba(245,158,11,0.15);
+  --ok-color: #4ade80;
+  /* radii */
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-pill: 999px;
+  /* shadows */
+  --shadow-card:   0 6px 20px rgba(20,40,80,0.06);
+  --shadow-askbar: 0 1px 0 rgba(0,0,0,0.03), 0 12px 28px rgba(20,40,80,0.06);
+  --shadow-btn:    0 1px 0 rgba(255,255,255,0.18) inset, 0 6px 14px rgba(20,40,80,0.12);
+  --shadow-float:  0 8px 24px rgba(0,0,0,0.24), 0 2px 6px rgba(0,0,0,0.16);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: oklch(0.985 0.004 250);
+    --surface: #fff;
+    --surface-2: oklch(0.97 0.005 250);
+    --text: oklch(0.18 0.01 250);
+    --text-2: oklch(0.40 0.008 250);
+    --text-3: oklch(0.58 0.006 250);
+    --border: oklch(0.91 0.006 250);
+    --border-strong: oklch(0.82 0.006 250);
+    --accent: oklch(0.55 0.16 250);
+    --accent-strong: oklch(0.42 0.16 250);
+    --accent-10: oklch(0.96 0.04 250);
+    --accent-30: oklch(0.88 0.08 250);
+    --bg-2: var(--surface); --fg: var(--text); --fg-2: var(--text-2); --fg-3: var(--text-3);
+  }
 }
 
 html, body, [class*="css"], .stApp {
   font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
   background-color: var(--bg) !important;
-  color: var(--fg) !important;
+  color: var(--text) !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
 }
-
-h1, h2, h3 {
-  font-family: 'IBM Plex Sans', sans-serif !important;
-  letter-spacing: -0.02em !important;
-  color: var(--fg) !important;
-}
-h1 { font-size: 1.6rem !important; font-weight: 600 !important; }
-h2 { font-size: 1.2rem !important; font-weight: 600 !important; }
-h3 { font-size: 1rem !important; font-weight: 600 !important; }
+h1 { font-size: 1.75rem !important; font-weight: 600 !important; letter-spacing: -0.02em !important; color: var(--text) !important; }
+h2 { font-size: 1.1rem !important; font-weight: 600 !important; letter-spacing: -0.01em !important; color: var(--text) !important; }
+h3 { font-size: 1rem !important; font-weight: 600 !important; color: var(--text) !important; }
 
 .stCaption, small, caption, [data-testid="stCaptionContainer"] p {
   font-family: 'IBM Plex Mono', monospace !important;
   font-size: 11px !important;
-  letter-spacing: 0.04em !important;
-  color: var(--fg-3) !important;
+  letter-spacing: 0.05em !important;
+  color: var(--text-3) !important;
 }
 
 .stApp { background-color: var(--bg) !important; }
@@ -78,13 +100,13 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
 }
 
 [data-testid="stSidebar"] {
-  background-color: var(--bg-2) !important;
+  background-color: var(--surface) !important;
   border-right: 1px solid var(--border) !important;
 }
 [data-testid="stSidebar"] .stMarkdown p,
 [data-testid="stSidebar"] .stMarkdown li {
   font-size: 13px !important;
-  color: var(--fg-2) !important;
+  color: var(--text-2) !important;
 }
 [data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
@@ -93,7 +115,7 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
   font-family: 'IBM Plex Mono', monospace !important;
   text-transform: uppercase !important;
   letter-spacing: 0.12em !important;
-  color: var(--fg-3) !important;
+  color: var(--text-3) !important;
   margin-top: 1.4rem !important;
   margin-bottom: 0.4rem !important;
   font-weight: 500 !important;
@@ -113,7 +135,7 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
   font-size: 11px !important;
   font-weight: 500 !important;
   letter-spacing: 0.06em !important;
-  color: var(--fg-3) !important;
+  color: var(--text-3) !important;
   background: transparent !important;
   border: none !important;
   border-bottom: 2px solid transparent !important;
@@ -121,7 +143,7 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
   text-transform: uppercase !important;
 }
 .stTabs [aria-selected="true"] {
-  color: var(--fg) !important;
+  color: var(--text) !important;
   border-bottom-color: var(--accent) !important;
   background: transparent !important;
 }
@@ -138,14 +160,14 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
   padding: 9px 16px !important;
 }
 .stButton > button[kind="primary"]:hover {
-  background-color: #ff6535 !important;
+  background-color: var(--accent-strong) !important;
   transform: translateY(-1px) !important;
-  box-shadow: 0 4px 12px rgba(255,120,73,0.30) !important;
+  box-shadow: 0 4px 12px var(--accent-30) !important;
 }
 .stButton > button[kind="secondary"],
 .stButton > button:not([kind]) {
   background-color: var(--surface) !important;
-  color: var(--fg-2) !important;
+  color: var(--text-2) !important;
   border: 1px solid var(--border) !important;
   border-radius: var(--radius-md) !important;
   font-family: 'IBM Plex Sans', sans-serif !important;
@@ -155,7 +177,7 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
 .stButton > button:not([kind]):hover {
   background-color: var(--surface-2) !important;
   border-color: var(--border-strong) !important;
-  color: var(--fg) !important;
+  color: var(--text) !important;
 }
 
 .stTextInput input, [data-testid="stTextInput"] input,
@@ -163,13 +185,13 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
   background-color: var(--surface) !important;
   border: 1px solid var(--border) !important;
   border-radius: var(--radius-md) !important;
-  color: var(--fg) !important;
+  color: var(--text) !important;
   font-family: 'IBM Plex Sans', sans-serif !important;
   font-size: 13px !important;
 }
 .stTextInput input:focus, [data-testid="stTextInput"] input:focus {
   border-color: var(--accent) !important;
-  box-shadow: 0 0 0 2px var(--accent-dim) !important;
+  box-shadow: 0 0 0 2px var(--accent-10) !important;
 }
 [data-baseweb="select"] {
   background-color: var(--surface) !important;
@@ -187,7 +209,7 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
 [data-testid="stMetricValue"] {
   font-family: 'IBM Plex Mono', monospace !important;
   font-size: 1.6rem !important;
-  color: var(--fg) !important;
+  color: var(--text) !important;
   font-weight: 600 !important;
 }
 [data-testid="stMetricLabel"] {
@@ -195,7 +217,7 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
   font-size: 10px !important;
   text-transform: uppercase !important;
   letter-spacing: 0.1em !important;
-  color: var(--fg-3) !important;
+  color: var(--text-3) !important;
 }
 
 [data-testid="stAlert"] {
@@ -216,16 +238,16 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
 [data-testid="stExpander"] {
   border: 1px solid var(--border) !important;
   border-radius: var(--radius-md) !important;
-  background-color: var(--bg-2) !important;
+  background-color: var(--surface) !important;
   box-shadow: var(--shadow-card) !important;
 }
 [data-testid="stExpander"] summary {
   font-size: 12px !important;
   font-weight: 500 !important;
-  color: var(--fg-2) !important;
+  color: var(--text-2) !important;
   padding: 10px 14px !important;
 }
-[data-testid="stExpander"] summary:hover { color: var(--fg) !important; }
+[data-testid="stExpander"] summary:hover { color: var(--text) !important; }
 
 [data-testid="stDataEditor"] {
   border: 1px solid var(--border) !important;
@@ -234,7 +256,7 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
 }
 [data-testid="stDataEditor"] > div,
 .dvn-scroller, .dvn-scroller > div {
-  background-color: var(--bg-2) !important;
+  background-color: var(--surface) !important;
 }
 
 /* ── Claude-style chat messages — no avatars ── */
@@ -260,14 +282,16 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
   border-bottom: none !important;
 }
 
-/* User turn — subtle pill background */
+/* User turn — bubble */
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
   background: var(--surface) !important;
-  border-radius: var(--radius-lg) !important;
-  padding: 16px 20px !important;
+  border-radius: 12px 12px 2px 12px !important;
+  padding: 10px 14px !important;
   border: none !important;
   border-bottom: none !important;
   margin-bottom: 4px !important;
+  max-width: 78% !important;
+  margin-left: auto !important;
 }
 
 [data-testid="stChatInput"] {
@@ -277,12 +301,12 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
 }
 [data-testid="stChatInput"]:focus-within {
   border-color: var(--accent) !important;
-  box-shadow: 0 0 0 3px var(--accent-glow) !important;
+  box-shadow: 0 0 0 3px var(--accent-10) !important;
 }
 [data-testid="stChatInput"] textarea {
   font-family: 'IBM Plex Sans', sans-serif !important;
   font-size: 14px !important;
-  color: var(--fg) !important;
+  color: var(--text) !important;
   background: transparent !important;
 }
 
@@ -299,7 +323,7 @@ hr {
 }
 [data-testid="stFileUploader"]:hover {
   border-color: var(--accent) !important;
-  background-color: var(--accent-glow) !important;
+  background-color: var(--accent-10) !important;
 }
 
 [data-testid="stImage"] img {
@@ -326,7 +350,7 @@ input[type="checkbox"]:checked { accent-color: var(--accent) !important; }
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--fg-3);
+  color: var(--text-3);
 }
 .mm-badge {
   display: inline-flex;
@@ -341,7 +365,7 @@ input[type="checkbox"]:checked { accent-color: var(--accent) !important; }
   text-transform: uppercase;
 }
 .mm-badge-ts    { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
-.mm-badge-spec  { background: rgba(59,130,246,0.12); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+.mm-badge-spec  { background: var(--accent-10); color: var(--accent); border: 1px solid var(--accent-30); }
 .mm-badge-proc  { background: rgba(74,222,128,0.10); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
 .mm-badge-table { background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.3); }
 .mm-badge-ocr   { background: rgba(251,146,60,0.12); color: #fb923c; border: 1px solid rgba(251,146,60,0.3); }
@@ -352,12 +376,192 @@ input[type="checkbox"]:checked { accent-color: var(--accent) !important; }
   background: var(--accent);
   opacity: 0.7;
 }
+
+/* ── Ask bar (home screen) ── */
+.tmc-ask-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 7px 16px;
+  box-shadow: var(--shadow-askbar);
+  transition: border-color 0.15s ease;
+}
+.tmc-ask-bar:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-10), var(--shadow-askbar);
+}
+
+/* ── Nav tab item in sidebar ── */
+.tmc-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  border: 1px solid transparent;
+  margin-bottom: 2px;
+}
+.tmc-nav-item.active {
+  background: var(--accent-10);
+  border-color: var(--accent-30);
+}
+.tmc-nav-item:hover:not(.active) {
+  background: var(--surface-2);
+}
+.tmc-nav-label {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.2;
+}
+.tmc-nav-sublabel {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-3);
+}
+
+/* ── Suggested prompt row ── */
+.tmc-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  margin-bottom: 6px;
+  text-decoration: none;
+}
+.tmc-prompt-row:hover {
+  background: var(--accent-10);
+  border-color: var(--accent-30);
+}
+.tmc-prompt-sparkle { color: var(--accent); font-size: 13px; flex-shrink: 0; }
+.tmc-prompt-text { font-size: 14px; color: var(--text); flex: 1; }
+.tmc-prompt-arrow { color: var(--text-3); font-size: 13px; flex-shrink: 0; }
+
+/* ── Impeller badge (home header) ── */
+.tmc-impeller-badge {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--accent-10);
+  border: 1.5px solid var(--accent-30);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
+/* ── Manual card ── */
+.tmc-manual-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  margin-bottom: 12px;
+}
+.tmc-manual-card:hover {
+  border-color: var(--accent-30);
+  box-shadow: var(--shadow-card);
+  transform: translateY(-1px);
+}
+.tmc-manual-card-footer {
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ── Upload drop zone ── */
+.tmc-dropzone {
+  border: 2px dashed var(--border-strong);
+  border-radius: 14px;
+  padding: 44px 24px;
+  text-align: center;
+  background: var(--surface);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.tmc-dropzone:hover {
+  border-color: var(--accent);
+  background: var(--accent-10);
+}
+
+/* ── "New question" CTA button ── */
+.tmc-new-question-btn {
+  width: 100%;
+  background: var(--accent);
+  color: var(--accent-on);
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: var(--shadow-btn);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  margin-bottom: 16px;
+}
+.tmc-new-question-btn:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+/* ── Thinking indicator ── */
+@keyframes tmc-bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-5px); }
+}
+.tmc-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent); animation: tmc-bounce 1.2s infinite ease-in-out; }
+.tmc-dot:nth-child(2) { animation-delay: 0.2s; }
+.tmc-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tmc-dot { animation: none; }
+  .tmc-manual-card, .tmc-prompt-row, .tmc-new-question-btn { transition: none !important; }
+  [class*="stButton"] button { transition: none !important; }
+}
 </style>
 """
 
+# ── Impeller SVG logo ─────────────────────────────────────────────────────────
+_IMPELLER_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 24 24" fill="none">'
+    '<g stroke="currentColor" stroke-width="1.6" stroke-linecap="round">'
+    '<path d="M0,-3.0 C0.8,-5.5 5.5,-8.5 8.0,-7.0"/>'
+    '<path d="M0,-3.0 C0.8,-5.5 5.5,-8.5 8.0,-7.0" transform="rotate(60)"/>'
+    '<path d="M0,-3.0 C0.8,-5.5 5.5,-8.5 8.0,-7.0" transform="rotate(120)"/>'
+    '<path d="M0,-3.0 C0.8,-5.5 5.5,-8.5 8.0,-7.0" transform="rotate(180)"/>'
+    '<path d="M0,-3.0 C0.8,-5.5 5.5,-8.5 8.0,-7.0" transform="rotate(240)"/>'
+    '<path d="M0,-3.0 C0.8,-5.5 5.5,-8.5 8.0,-7.0" transform="rotate(300)"/>'
+    '</g>'
+    '<circle cx="0" cy="0" r="3.2" fill="currentColor"/>'
+    '<circle cx="0" cy="0" r="1.2" fill="var(--bg,#18192a)"/>'
+    '<circle cx="0" cy="0" r="0.4" fill="var(--accent,#8ca8f5)"/>'
+    '</svg>'
+)
+
 # ── System prompt ─────────────────────────────────────────────────────────────
 _SYSTEM_PROMPT = """\
-You are ManualMan, a technical knowledge assistant for pump equipment manuals \
+You are ChatTMC, a technical knowledge assistant for pump equipment manuals \
 (Goulds, Aurora, Gorman-Rupp, ITT, Grundfos, Xylem, Flowserve, and similar manufacturers).
 
 Rules:
@@ -390,9 +594,12 @@ _SUBTYPE_BADGES = {
 }
 
 _COVER_PALETTES = [
-    ("#ff7849", "#1a0f0a"), ("#3b82f6", "#0a0f1a"),
-    ("#10b981", "#0a1a12"), ("#f59e0b", "#1a150a"),
-    ("#8b5cf6", "#120a1a"), ("#ef4444", "#1a0a0a"),
+    ("#6186f5", "#0c0e1a"),  # blue (matches brand)
+    ("#10b981", "#0a1a12"),  # green
+    ("#f59e0b", "#1a150a"),  # amber
+    ("#ef4444", "#1a0a0a"),  # red
+    ("#8b5cf6", "#120a1a"),  # violet
+    ("#06b6d4", "#0a1518"),  # teal
 ]
 
 _SUGGESTED_PROMPTS = [
@@ -445,13 +652,13 @@ def _score_bar(score: float, width_px: int = 60) -> str:
     """Mini inline score bar as HTML."""
     pct = min(max(score, 0.0), 1.0)
     bar_w = int(pct * width_px)
-    color = "#ff7849" if pct > 0.6 else "#f59e0b" if pct > 0.35 else "#6b6b74"
+    color = "var(--accent)" if pct > 0.6 else "#f59e0b" if pct > 0.35 else "var(--text-3)"
     return (
         f'<div style="display:flex;align-items:center;gap:6px;">'
-        f'<div style="width:{width_px}px;height:3px;background:#2a2a2f;border-radius:2px;overflow:hidden;">'
+        f'<div style="width:{width_px}px;height:3px;background:var(--border);border-radius:2px;overflow:hidden;">'
         f'<div style="width:{bar_w}px;height:3px;background:{color};border-radius:2px;"></div>'
         f'</div>'
-        f'<span style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#6b6b74;">{pct:.2f}</span>'
+        f'<span style="font-family:IBM Plex Mono,monospace;font-size:10px;color:var(--text-3);">{pct:.2f}</span>'
         f'</div>'
     )
 
@@ -563,8 +770,8 @@ def _render_sources(chunks: list[dict], show_scores: bool = True) -> None:
             header = (
                 f"<div style='display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;"
                 f"margin-bottom:4px;'>"
-                f"<strong style='color:#f5f5f7;'>{i}.</strong>"
-                f"<span style='color:#a1a1aa;font-size:12px;'>{_format_citation(chunk)}</span>"
+                f"<strong style='color:var(--text);'>{i}.</strong>"
+                f"<span style='color:var(--text-2);font-size:12px;'>{_format_citation(chunk)}</span>"
                 f"{badge}{ocr_b}{ts_b}"
                 f"</div>"
             )
@@ -660,8 +867,8 @@ def _render_image_grid(paths: list[str], key_prefix: str) -> None:
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="ManualMan",
-    page_icon="🟧",
+    page_title="ChatTMC",
+    page_icon="🔵",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -712,23 +919,25 @@ if not _voyage_ok or not _anthropic_ok:
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown(
-        """
-        <div style="display:flex;align-items:center;gap:10px;padding:4px 0 16px;">
-          <div style="position:relative;width:28px;height:28px;background:#0a0a0b;
-            border-radius:5px;display:flex;align-items:center;justify-content:center;
-            flex-shrink:0;border:1px solid #2a2a2f;">
-            <span style="font-family:'IBM Plex Sans',sans-serif;font-weight:700;
-              font-size:11px;color:#f5f5f7;letter-spacing:-0.04em;">MM</span>
-            <div style="position:absolute;top:3px;right:3px;width:5px;height:5px;
-              border-radius:50%;background:#ff7849;"></div>
-          </div>
-          <div>
-            <div style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;
-              font-weight:600;color:#f5f5f7;letter-spacing:-0.01em;line-height:1;">
-              ManualMan</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
-              color:#6b6b74;text-transform:uppercase;letter-spacing:0.1em;margin-top:2px;">
-              Pump Manual RAG</div>
+        f"""
+        <div style="padding:4px 0 20px;">
+          <!-- Logo row -->
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+            <div style="width:32px;height:32px;background:var(--accent-10);border:1.5px solid var(--accent-30);
+              border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+              color:var(--accent);">
+              <div style="width:20px;height:20px;">{_IMPELLER_SVG}</div>
+            </div>
+            <div>
+              <div style="font-family:'IBM Plex Sans',sans-serif;font-size:15px;font-weight:600;
+                color:var(--text);letter-spacing:-0.01em;line-height:1;">
+                Chat<span style="color:var(--accent);font-weight:700;">TMC</span>
+              </div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
+                color:var(--text-3);text-transform:uppercase;letter-spacing:0.1em;margin-top:2px;">
+                Technical Library
+              </div>
+            </div>
           </div>
         </div>
         """,
@@ -736,7 +945,7 @@ with st.sidebar:
     )
 
     # ── API status ────────────────────────────────────────────────────────────
-    st.subheader("System Status")
+    st.markdown("<div class='mm-label' style='margin-bottom:8px;'>System Status</div>", unsafe_allow_html=True)
     total   = get_total_chunk_count()
     indexed = get_indexed_pdfs()
     reranker_label = "ON" if config.RERANKER_ENABLED else "OFF"
@@ -752,13 +961,13 @@ with st.sidebar:
     )
 
     # ── Knowledge base stats ──────────────────────────────────────────────────
-    st.subheader("Knowledge Base")
+    st.markdown("<div class='mm-label' style='margin-bottom:8px;'>Knowledge Base</div>", unsafe_allow_html=True)
     m1, m2 = st.columns(2)
     m1.metric("Chunks", total)
     m2.metric("Manuals", len(indexed))
 
     # ── Retrieval filters ─────────────────────────────────────────────────────
-    st.subheader("Search Filters")
+    st.markdown("<div class='mm-label' style='margin-bottom:8px;'>Search Filters</div>", unsafe_allow_html=True)
     manufacturers = get_manufacturers()
     doc_types     = get_doc_types()
 
@@ -781,7 +990,7 @@ with st.sidebar:
     st.session_state.retrieval_filters = active_filters
 
     # ── Chat settings ─────────────────────────────────────────────────────────
-    st.subheader("Chat Settings")
+    st.markdown("<div class='mm-label' style='margin-bottom:8px;'>Chat Settings</div>", unsafe_allow_html=True)
     relevance_threshold = st.slider(
         "Relevance threshold",
         min_value=0.0, max_value=1.0,
@@ -797,7 +1006,7 @@ with st.sidebar:
     show_scores = st.toggle("Show retrieval scores", value=True)
 
     # ── Upload ────────────────────────────────────────────────────────────────
-    st.subheader("Upload Manuals")
+    st.markdown("<div class='mm-label' style='margin-bottom:8px;'>Upload Manuals</div>", unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
         "Drop PDF manuals here",
         type=["pdf"],
@@ -811,21 +1020,29 @@ with st.sidebar:
 
 
 # ── Main tabs ─────────────────────────────────────────────────────────────────
-tab_parse, tab_chat, tab_manuals = st.tabs(
-    ["Parse & Edit", "Chat", "Manuals"]
+tab_chat, tab_manuals, tab_upload = st.tabs(
+    ["ChatTMC", "Document Library", "File Upload"]
 )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — Parse & Edit
+# TAB 3 — File Upload
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_parse:
+with tab_upload:
     st.markdown(
-        "<div class='mm-label' style='margin-bottom:4px;'>Step 1 of 2</div>"
-        "<h2 style='margin-top:0;'>Parse & Edit Chunks</h2>"
-        "<p style='color:#a1a1aa;font-size:13px;margin-bottom:1.5rem;'>"
-        "Upload PDFs → fill in metadata → parse into sections → review chunks → commit to knowledge base."
-        "</p>",
+        """
+        <div style="padding:28px 0 20px;max-width:880px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;
+            text-transform:uppercase;letter-spacing:0.12em;color:var(--text-3);margin-bottom:8px;">Upload</div>
+          <h1 style="font-size:1.5rem;font-weight:600;letter-spacing:-0.02em;color:var(--text);margin:0 0 8px;">
+            Add documents to your library
+          </h1>
+          <p style="font-size:14px;color:var(--text-2);max-width:540px;margin:0 0 24px;line-height:1.6;">
+            Upload service manuals, spec sheets, parts catalogs, or service bulletins.
+            Documents are OCR&#8209;processed and indexed for retrieval.
+          </p>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -909,7 +1126,7 @@ with tab_parse:
             st.markdown(
                 f"<div style='display:flex;align-items:baseline;gap:10px;margin-bottom:6px;'>"
                 f"<span style='font-size:16px;font-weight:600;'>Chunk Editor</span>"
-                f"<span class='mm-mono' style='color:#6b6b74;'>{n_chunks} chunk(s)</span>"
+                f"<span class='mm-mono' style='color:var(--text-3);'>{n_chunks} chunk(s)</span>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -977,8 +1194,8 @@ with tab_parse:
                 hdr_c.markdown(
                     f"<div style='font-size:13px;font-weight:600;padding-top:6px;'>"
                     f"Recommended &nbsp;"
-                    f"<span class='mm-mono' style='color:#6b6b74;'>{len(recommended)} image(s)"
-                    + (f" · <span style='color:#ff7849;'>{excluded_ct} excluded total</span>" if excluded_ct else "")
+                    f"<span class='mm-mono' style='color:var(--text-3);'>{len(recommended)} image(s)"
+                    + (f" · <span style='color:var(--accent);'>{excluded_ct} excluded total</span>" if excluded_ct else "")
                     + "</span></div>",
                     unsafe_allow_html=True,
                 )
@@ -1007,7 +1224,7 @@ with tab_parse:
                     uhdr, utog = st.columns([6, 1])
                     uhdr.markdown(
                         f"<div style='font-size:13px;font-weight:600;padding-top:6px;'>"
-                        f"Unsure &nbsp;<span class='mm-mono' style='color:#6b6b74;'>"
+                        f"Unsure &nbsp;<span class='mm-mono' style='color:var(--text-3);'>"
                         f"{len(unsure)} image(s) · likely backgrounds or blurs</span></div>",
                         unsafe_allow_html=True,
                     )
@@ -1086,11 +1303,9 @@ with tab_parse:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Chat
+# TAB 1 — ChatTMC
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_chat:
-    st.markdown("<h2 style='margin-top:0;margin-bottom:0.25rem;'>Chat</h2>", unsafe_allow_html=True)
-
     total_chunks = get_total_chunk_count()
     indexed_pdfs = get_indexed_pdfs()
 
@@ -1098,27 +1313,60 @@ with tab_chat:
         st.markdown(
             "<div style='text-align:center;padding:48px 0;'>"
             "<div style='font-size:2rem;margin-bottom:12px;'>📂</div>"
-            "<div style='font-size:15px;font-weight:600;color:#f5f5f7;margin-bottom:6px;'>No manuals indexed yet</div>"
-            "<div style='font-size:13px;color:#a1a1aa;'>Go to <b>Parse &amp; Edit</b>, upload a PDF, and click <b>Commit to Knowledge Base</b>.</div>"
+            "<div style='font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px;'>No manuals indexed yet</div>"
+            "<div style='font-size:13px;color:var(--text-2);'>Go to <b>File Upload</b>, upload a PDF, and click <b>Commit to Knowledge Base</b>.</div>"
             "</div>",
             unsafe_allow_html=True,
         )
     else:
+        # ── Branded header (empty state) or compact header ──────────────────────
+        if not st.session_state.chat_history:
+            st.markdown(
+                f"""
+                <div style="text-align:center;padding:10vh 32px 40px;max-width:680px;margin:0 auto;">
+                  <!-- Impeller badge -->
+                  <div class="tmc-impeller-badge" style="color:var(--accent);">
+                    <div style="width:36px;height:36px;">{_IMPELLER_SVG}</div>
+                  </div>
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;
+                    text-transform:uppercase;letter-spacing:0.12em;color:var(--text-3);margin-bottom:12px;">
+                    ChatTMC &middot; {len(get_indexed_pdfs())} manuals indexed
+                  </div>
+                  <h1 style="font-size:1.75rem;font-weight:600;letter-spacing:-0.02em;
+                    color:var(--text);margin:0 0 12px;text-wrap:balance;">
+                    Ask your technical library anything.
+                  </h1>
+                  <p style="font-size:14px;color:var(--text-2);max-width:480px;margin:0 auto 0;line-height:1.6;">
+                    Grounded, cited answers from every manual, spec sheet, and service bulletin in your library.
+                  </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                "<div style='padding:16px 0 8px;'>"
+                "<span style='font-family:IBM Plex Mono,monospace;font-size:11px;"
+                "text-transform:uppercase;letter-spacing:0.12em;color:var(--text-3);'>ChatTMC</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
         # ── Status bar ──────────────────────────────────────────────────────────
         filter_desc = " · ".join(f"{k}: {v}" for k, v in st.session_state.retrieval_filters.items())
         mode_label  = "Hybrid BM25+Vector" + (" + Rerank" if config.RERANKER_ENABLED else "")
         st.markdown(
             f"<div style='display:flex;gap:12px;align-items:center;flex-wrap:wrap;"
-            f"padding:8px 12px;background:#1a1a1e;border:1px solid #2a2a2f;"
+            f"padding:8px 12px;background:var(--surface);border:1px solid var(--border);"
             f"border-radius:6px;margin-bottom:1.25rem;'>"
-            f"<span class='mm-mono' style='color:#6b6b74;'>{total_chunks} chunks</span>"
-            f"<span style='color:#2a2a2f;'>|</span>"
-            f"<span class='mm-mono' style='color:#6b6b74;'>{len(indexed_pdfs)} manual(s)</span>"
-            f"<span style='color:#2a2a2f;'>|</span>"
-            f"<span class='mm-mono' style='color:#ff7849;'>{mode_label}</span>"
-            f"<span style='color:#2a2a2f;'>|</span>"
-            f"<span class='mm-mono' style='color:#6b6b74;'>threshold {relevance_threshold:.2f}</span>"
-            + (f"<span style='color:#2a2a2f;'>|</span><span class='mm-mono' style='color:#f59e0b;'>{filter_desc}</span>" if filter_desc else "")
+            f"<span class='mm-mono' style='color:var(--text-3);'>{total_chunks} chunks</span>"
+            f"<span style='color:var(--border);'>|</span>"
+            f"<span class='mm-mono' style='color:var(--text-3);'>{len(indexed_pdfs)} manual(s)</span>"
+            f"<span style='color:var(--border);'>|</span>"
+            f"<span class='mm-mono' style='color:var(--accent);'>{mode_label}</span>"
+            f"<span style='color:var(--border);'>|</span>"
+            f"<span class='mm-mono' style='color:var(--text-3);'>threshold {relevance_threshold:.2f}</span>"
+            + (f"<span style='color:var(--border);'>|</span><span class='mm-mono' style='color:#f59e0b;'>{filter_desc}</span>" if filter_desc else "")
             + "</div>",
             unsafe_allow_html=True,
         )
@@ -1133,7 +1381,8 @@ with tab_chat:
         # ── Suggested prompts ───────────────────────────────────────────────────
         if not st.session_state.chat_history:
             st.markdown(
-                "<div style='margin-bottom:12px;'><span class='mm-label'>Try asking</span></div>",
+                "<div style='font-family:IBM Plex Mono,monospace;font-size:10px;text-transform:uppercase;"
+                "letter-spacing:0.12em;color:var(--text-3);text-align:center;margin-bottom:10px;'>Try asking</div>",
                 unsafe_allow_html=True,
             )
             prompt_cols = st.columns(3)
@@ -1297,7 +1546,7 @@ with tab_chat:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — Manuals
+# TAB 2 — Document Library
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_manuals:
     # Handle cross-tab PDF navigation target from chat citations
@@ -1314,20 +1563,29 @@ with tab_manuals:
         view_key = f"view_pdf_{nf}"
         st.session_state[view_key] = True
 
+    indexed_pdfs = get_indexed_pdfs()
     st.markdown(
-        "<h2 style='margin-top:0;margin-bottom:0.25rem;'>Indexed Manuals</h2>"
-        "<p style='color:#a1a1aa;font-size:13px;margin-bottom:1.5rem;'>"
-        "Manuals currently in your knowledge base.</p>",
+        f"""
+        <div style="padding:28px 0 20px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;
+            text-transform:uppercase;letter-spacing:0.12em;color:var(--text-3);margin-bottom:8px;">
+            Document Library
+          </div>
+          <h1 style="font-size:1.4rem;font-weight:600;letter-spacing:-0.02em;
+            color:var(--text);margin:0 0 4px;">{len(indexed_pdfs)} manuals &middot; {len(get_manufacturers())} manufacturers</h1>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-    indexed_pdfs = get_indexed_pdfs()
     if not indexed_pdfs:
         st.markdown(
-            "<div style='text-align:center;padding:48px 0;'>"
-            "<div style='font-size:2rem;margin-bottom:12px;'>📚</div>"
-            "<div style='font-size:15px;font-weight:600;color:#f5f5f7;margin-bottom:6px;'>No manuals indexed</div>"
-            "<div style='font-size:13px;color:#a1a1aa;'>Upload PDFs in <b>Parse &amp; Edit</b>.</div>"
+            "<div style='text-align:center;padding:64px 0;'>"
+            "<div style='width:52px;height:52px;border-radius:12px;background:var(--accent-10);"
+            "border:1.5px solid var(--accent-30);display:flex;align-items:center;justify-content:center;"
+            "margin:0 auto 16px;font-size:24px;'>📚</div>"
+            "<div style='font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px;'>No manuals indexed</div>"
+            "<div style='font-size:13px;color:var(--text-2);'>Upload PDFs in <b>File Upload</b>.</div>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -1349,14 +1607,12 @@ with tab_manuals:
 
             # Highlight card if it's the current navigation target
             is_nav = nav_target and nav_target.get("source_pdf") == source_pdf
-            card_border = f"border:2px solid {accent};" if is_nav else "border:1px solid #2a2a2f;"
+            card_border = f"border:2px solid {accent};" if is_nav else "border:1px solid var(--border);"
 
             with cols[i % 3]:
                 st.markdown(
                     f"""
-                    <div style="{card_border}border-radius:8px;overflow:hidden;
-                      margin-bottom:8px;box-shadow:0 1px 0 rgba(0,0,0,0.08),2px 2px 0 #2a2a2f;
-                      background:#1a1a1e;">
+                    <div class="tmc-manual-card" style="{card_border}">
                       <div style="height:6px;background:{accent};"></div>
                       <div style="padding:16px;background:repeating-linear-gradient(
                         135deg,{bg} 0px,{bg} 10px,
@@ -1364,16 +1620,16 @@ with tab_manuals:
                         <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
                           text-transform:uppercase;letter-spacing:0.12em;
                           color:{accent};margin-bottom:6px;">{subtitle or "Manual"}</div>
-                        <div style="font-size:14px;font-weight:600;color:#f5f5f7;
+                        <div style="font-size:14px;font-weight:600;color:var(--text);
                           line-height:1.3;margin-bottom:8px;">{title}</div>
                         <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;
-                          color:#6b6b74;">{meta_tags or source_pdf}</div>
+                          color:var(--text-3);">{meta_tags or source_pdf}</div>
                       </div>
-                      <div style="padding:8px 16px;border-top:1px solid #2a2a2f;
+                      <div style="padding:8px 16px;border-top:1px solid var(--border);
                         display:flex;justify-content:space-between;align-items:center;">
                         <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;
-                          color:#6b6b74;">{chunk_label}</span>
-                        {'<span style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#4ade80;">● PDF saved</span>' if pdf_on_disk else '<span style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#6b6b74;">re-parse to enable download</span>'}
+                          color:var(--text-3);">{chunk_label}</span>
+                        {'<span style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#4ade80;">● PDF saved</span>' if pdf_on_disk else '<span style="font-family:IBM Plex Mono,monospace;font-size:10px;color:var(--text-3);">re-parse to enable download</span>'}
                       </div>
                     </div>
                     """,
@@ -1430,7 +1686,7 @@ with tab_manuals:
                     nav_note = ""
                     if jump_page > 1:
                         nav_note = (
-                            f"<span style='color:#ff7849;font-family:IBM Plex Mono,monospace;"
+                            f"<span style='color:var(--accent);font-family:IBM Plex Mono,monospace;"
                             f"font-size:11px;'> → page {jump_page}</span>"
                         )
 
@@ -1444,7 +1700,7 @@ with tab_manuals:
                     st.markdown(
                         f'<iframe src="data:application/pdf;base64,{b64}#page={jump_page}" '
                         f'width="100%" height="900px" '
-                        f'style="border:1px solid #2a2a2f;border-radius:6px;"></iframe>',
+                        f'style="border:1px solid var(--border);border-radius:6px;"></iframe>',
                         unsafe_allow_html=True,
                     )
                     # Dismiss navigation target after rendering
@@ -1455,7 +1711,7 @@ with tab_manuals:
 
         total_all = get_total_chunk_count()
         st.markdown(
-            f"<span class='mm-mono' style='color:#6b6b74;'>"
+            f"<span class='mm-mono' style='color:var(--text-3);'>"
             f"{total_all} total chunks · {len(indexed_pdfs)} manual(s)</span>",
             unsafe_allow_html=True,
         )
