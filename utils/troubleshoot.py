@@ -39,6 +39,20 @@ _ACTION_WORDS = {
     "correct", "remedy", "prevent", "issue", "problem",
 }
 
+_VISUAL_KEYWORDS = {
+    "curve", "curves", "performance curve", "head curve", "efficiency curve",
+    "dimensional", "dimensions", "drawing", "drawings", "diagram", "diagrams",
+    "chart", "charts", "cross section", "cutaway", "exploded", "schematic",
+    "wiring", "nameplate", "rating plate", "photo", "picture", "image",
+    "show me", "show the", "display", "view",
+}
+
+_VISUAL_PHRASES = [
+    "performance curve", "head curve", "dimensional drawing", "cross section",
+    "parts diagram", "wiring diagram", "installation diagram", "show me the",
+    "show the", "what does it look like", "pump photo",
+]
+
 _FAULT_CODE_PATTERN = re.compile(
     r"\b([A-Z]{1,4}[-_]?\d{2,6}|error\s+\d+|fault\s+\d+|alarm\s+\d+|code\s+\d+)\b",
     re.IGNORECASE,
@@ -96,10 +110,15 @@ def classify_query(question: str) -> dict:
 
     boost_keywords = list(symptom_hits | action_hits) + fault_codes + phrase_hits
 
+    visual_hits   = words & _VISUAL_KEYWORDS
+    visual_phrases = [p for p in _VISUAL_PHRASES if p in lower]
+    is_visual_query = bool(visual_hits or visual_phrases)
+
     return {
         "is_troubleshooting": is_troubleshooting,
         "is_spec_lookup":     is_spec_lookup,
         "is_part_lookup":     is_part_lookup,
+        "is_visual_query":    is_visual_query,
         "fault_codes":        fault_codes,
         "boost_keywords":     boost_keywords,
     }

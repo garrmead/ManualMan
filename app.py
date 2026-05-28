@@ -362,17 +362,17 @@ You are ManualMan, a technical knowledge assistant for pump equipment manuals \
 
 Rules:
 1. Answer using ONLY the provided context. Do not draw on outside knowledge.
-2. Be concise and direct. Lead with the answer — skip preamble.
-3. Cite sources inline as [Source N]. Cite all sources that support each assertion.
-4. For IMAGE chunks (performance curves, drawings, etc.): reference briefly as "See [Source 2]." \
-   The image displays automatically — do not describe it in detail.
-5. For specifications: present as structured data (tables, bullet lists) rather than prose.
-6. If context lacks enough information, say "No supporting documentation found" and nothing more. \
-   Do not speculate or supplement with general knowledge.
+2. BREVITY FIRST: Lead with the single most important fact or value in one sentence. \
+   Put supporting detail after, not before.
+3. If an IMAGE chunk is cited (performance curve, drawing, diagram): write ONE sentence \
+   referencing it as "See [Source N]." DO NOT describe or recreate the data — the image \
+   displays automatically and speaks for itself.
+4. Cite sources inline as [Source N] for every claim.
+5. For specs and tables: use a tight bullet list or table, not prose paragraphs.
+6. If context lacks enough information, say "No supporting documentation found." — nothing more.
 7. After your answer, on a new line write exactly: \
    FOLLOW-UPS: <question 1> | <question 2> | <question 3> \
-   These are short suggested follow-up questions (max 10 words each). \
-   Skip FOLLOW-UPS if the answer was "No supporting documentation found".\
+   Max 10 words each. Skip if answer was "No supporting documentation found."\
 """
 
 # ── Manual metadata fields ────────────────────────────────────────────────────
@@ -466,6 +466,65 @@ def _format_citation(chunk: dict) -> str:
         parts.append(f"§ *{chunk['section_title']}*")
     parts.append(f"Page **{chunk['page_number']}**")
     return " · ".join(parts)
+
+
+_AVATAR_USER      = "○"   # replaces human icon
+_AVATAR_ASSISTANT = "▸"   # replaces robot icon
+
+
+def _has_image_chunks(chunks: list[dict]) -> bool:
+    return any(
+        c.get("chunk_type") == "image" and Path(c.get("image_path", "")).exists()
+        for c in chunks
+    )
+
+
+def _render_answer(
+    content: str,
+    chunks: list[dict],
+    is_visual: bool,
+    show_scores: bool,
+) -> None:
+    """
+    Render an assistant answer with progressive disclosure.
+
+    Visual queries (curves, drawings, diagrams):
+      → Images shown large and first
+      → Text answer in a collapsed expander ("Text notes ↓")
+
+    All other queries:
+      → First paragraph shown immediately
+      → Everything after the first paragraph in "Show more ↓" expander
+    """
+    cited = _cited_source_indices(content)
+    image_chunks = [
+        c for c in chunks
+        if c.get("chunk_type") == "image"
+        and Path(c.get("image_path", "")).exists()
+        and (not cited or (list(chunks).index(c) + 1) in cited)
+    ]
+
+    if is_visual and image_chunks:
+        # ── Image-first layout ─────────────────────────────────────────────────
+        _render_inline_images(chunks, answer_text=content)
+        # Collapse the text — it adds nothing when the image is the answer
+        clean = content.strip()
+        if clean and clean.lower() != "no supporting documentation found.":
+            with st.expander("Text notes ↓", expanded=False):
+                st.markdown(clean)
+    else:
+        # ── Progressive disclosure ─────────────────────────────────────────────
+        paragraphs = [p for p in content.split("\n\n") if p.strip()]
+        if paragraphs:
+            st.markdown(paragraphs[0])
+        if len(paragraphs) > 1:
+            with st.expander("Show more ↓", expanded=False):
+                st.markdown("\n\n".join(paragraphs[1:]))
+        # Inline images below the lead paragraph (text-mode citations)
+        if image_chunks:
+            _render_inline_images(chunks, answer_text=content)
+
+    _render_sources(chunks, show_scores=show_scores)
 
 
 def _render_inline_images(chunks: list[dict], answer_text: str = "") -> None:
@@ -1085,17 +1144,23 @@ with tab_chat:
 
         # ── Render history ──────────────────────────────────────────────────────
         for msg in st.session_state.chat_history:
-            with st.chat_message(msg["role"]):
+            avatar = _AVATAR_USER if msg["role"] == "user" else _AVATAR_ASSISTANT
+            with st.chat_message(msg["role"], avatar=avatar):
                 if msg["role"] == "assistant" and msg.get("is_troubleshooting"):
                     st.markdown(
                         '<span class="mm-badge mm-badge-ts" style="margin-bottom:8px;display:inline-block;">'
-                        '⚡ Troubleshooting mode</span>',
+                        '⚡ Troubleshooting</span>',
                         unsafe_allow_html=True,
                     )
-                st.markdown(msg["content"])
                 if msg["role"] == "assistant" and msg.get("chunks"):
-                    _render_inline_images(msg["chunks"], answer_text=msg["content"])
-                    _render_sources(msg["chunks"], show_scores=show_scores)
+                    _render_answer(
+                        msg["content"],
+                        msg["chunks"],
+                        is_visual=msg.get("is_visual_query", False),
+                        show_scores=show_scores,
+                    )
+                else:
+                    st.markdown(msg["content"])
                 if msg["role"] == "assistant" and msg.get("follow_ups"):
                     st.markdown(
                         "<div class='mm-label' style='margin-top:12px;margin-bottom:6px;'>Follow up</div>",
@@ -1138,16 +1203,17 @@ with tab_chat:
 
         if question:
             # Detect intent before adding to history
-            intent = classify_query(question)
-            is_ts  = intent["is_troubleshooting"]
+            intent     = classify_query(question)
+            is_ts      = intent["is_troubleshooting"]
+            is_visual  = intent["is_visual_query"]
 
             st.session_state.chat_history.append(
                 {"role": "user", "content": question, "chunks": None, "follow_ups": []}
             )
-            with st.chat_message("user"):
+            with st.chat_message("user", avatar=_AVATAR_USER):
                 st.markdown(question)
 
-            with st.chat_message("assistant"):
+            with st.chat_message("assistant", avatar=_AVATAR_ASSISTANT):
                 if is_ts:
                     st.markdown(
                         '<span class="mm-badge mm-badge-ts" style="margin-bottom:8px;display:inline-block;">'
@@ -1190,25 +1256,34 @@ with tab_chat:
                         is_troubleshooting=is_ts,
                     )
 
-                    # Append troubleshooting addendum to system prompt when in TS mode
                     system = _SYSTEM_PROMPT
                     if is_ts:
                         system += get_troubleshoot_system_addendum()
 
                     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-                    def _stream_response():
-                        with client.messages.stream(
-                            model=config.ANTHROPIC_MODEL,
-                            max_tokens=config.MAX_TOKENS,
-                            system=system,
-                            messages=messages,
-                        ) as stream:
-                            for text in stream.text_stream:
-                                yield text
+                    # Stream into a placeholder so we can replace it with
+                    # progressive-disclosure / image-first rendering once complete.
+                    stream_placeholder = st.empty()
+                    collected: list[str] = []
+                    with client.messages.stream(
+                        model=config.ANTHROPIC_MODEL,
+                        max_tokens=config.MAX_TOKENS,
+                        system=system,
+                        messages=messages,
+                    ) as stream:
+                        for text in stream.text_stream:
+                            collected.append(text)
+                            stream_placeholder.markdown(
+                                "".join(collected) + "▌"
+                            )
 
-                    raw_answer = st.write_stream(_stream_response())
+                    raw_answer = "".join(collected)
                     answer, follow_ups = _parse_follow_ups(raw_answer)
+
+                    # Replace streamed text with final progressive-disclosure render
+                    stream_placeholder.empty()
+                    _render_answer(answer, chunks, is_visual, show_scores)
 
             st.session_state.chat_history.append({
                 "role":                "assistant",
@@ -1216,6 +1291,7 @@ with tab_chat:
                 "chunks":              chunks or [],
                 "follow_ups":          follow_ups,
                 "is_troubleshooting":  is_ts,
+                "is_visual_query":     is_visual,
             })
             st.rerun()
 
