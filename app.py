@@ -483,6 +483,26 @@ def _format_citation(chunk: dict) -> str:
     return " · ".join(parts)
 
 
+# ── Helper: image quality scorer ─────────────────────────────────────────────
+def _image_quality_score(image_path: str) -> float:
+    """
+    Returns 0.0-1.0. Low scores (< 0.25) indicate solid fills, uniform
+    backgrounds, or near-featureless blurs. Uses pixel std-dev on a tiny
+    thumbnail so it runs in under 1ms per image.
+    """
+    try:
+        from PIL import Image
+        img = Image.open(image_path).convert("L").resize((32, 32))
+        pixels = list(img.getdata())
+        mean = sum(pixels) / len(pixels)
+        std  = (sum((p - mean) ** 2 for p in pixels) / len(pixels)) ** 0.5
+        return min(std / 80.0, 1.0)
+    except Exception:
+        return 0.5   # unknown → treat as usable
+
+_QUALITY_THRESHOLD = 0.20   # below this → "Unsure" bucket
+
+
 # ── Helper: build DataFrame for chunk editor ──────────────────────────────────
 def _build_chunks_df(chunks: list[dict]) -> pd.DataFrame:
     rows = [
@@ -526,6 +546,7 @@ if "parse_version"      not in st.session_state: st.session_state.parse_version 
 if "edited_df"          not in st.session_state: st.session_state.edited_df          = None
 if "chat_history"       not in st.session_state: st.session_state.chat_history       = []
 if "show_img_gallery"   not in st.session_state: st.session_state.show_img_gallery   = True
+if "show_unsure_gallery" not in st.session_state: st.session_state.show_unsure_gallery = False
 if "last_committed"     not in st.session_state: st.session_state.last_committed     = 0
 if "pdf_metadata"       not in st.session_state: st.session_state.pdf_metadata       = {}
 if "pending_question"   not in st.session_state: st.session_state.pending_question   = ""
@@ -798,7 +819,7 @@ with tab_parse:
                 st.session_state.edited_df = st.session_state.chunks_df
                 keep_count = 0
 
-            # ── Image gallery with exclusion checkboxes ────────────────────────
+            # ── Image gallery — Recommended / Unsure ───────────────────────────
             all_image_paths: list[str] = []
             for chunk in st.session_state.parsed_chunks:
                 for p in chunk["image_paths"]:
@@ -806,59 +827,96 @@ with tab_parse:
                         all_image_paths.append(p)
 
             if all_image_paths:
+                # Score every image once and split into buckets
+                recommended = [p for p in all_image_paths if _image_quality_score(p) >= _QUALITY_THRESHOLD]
+                unsure      = [p for p in all_image_paths if _image_quality_score(p) <  _QUALITY_THRESHOLD]
                 excluded_count = len(st.session_state.excluded_images & set(all_image_paths))
 
-                # Toggle button — stays open across reruns via session state
-                hdr_col, toggle_col = st.columns([6, 1])
-                hdr_col.markdown(
-                    f"<div style='font-size:13px;font-weight:600;padding-top:6px;'>"
-                    f"Extracted Images &nbsp;"
-                    f"<span style='color:#6b6b74;font-weight:400;font-family:IBM Plex Mono,monospace;font-size:11px;'>"
-                    f"{len(all_image_paths)} total"
-                    + (f" · <span style='color:#ff7849;'>{excluded_count} excluded</span>" if excluded_count else "")
-                    + "</span></div>",
-                    unsafe_allow_html=True,
-                )
-                if toggle_col.button(
-                    "Hide ▲" if st.session_state.show_img_gallery else "Show ▼",
-                    key="toggle_gallery",
-                    use_container_width=True,
-                ):
-                    st.session_state.show_img_gallery = not st.session_state.show_img_gallery
-                    st.rerun()
-
-                if st.session_state.show_img_gallery:
-                    st.caption(
-                        "Uncheck images to exclude from indexing. "
-                        "Solid-color or blurry images are usually PDF background fills — safe to exclude."
-                    )
-                    sel_col1, sel_col2, _ = st.columns([1, 1, 5])
-                    if sel_col1.button("Exclude all", key="excl_all", use_container_width=True):
-                        st.session_state.excluded_images = set(all_image_paths)
-                        st.rerun()
-                    if sel_col2.button("Include all", key="incl_all", use_container_width=True):
-                        st.session_state.excluded_images = set()
-                        st.rerun()
-
-                    st.divider()
-                    grid_cols = st.columns(4)
-                    for i, img_path in enumerate(all_image_paths):
-                        col = grid_cols[i % 4]
+                def _render_image_grid(paths: list[str], key_prefix: str) -> None:
+                    """Render a 4-column image grid with include checkboxes."""
+                    cols = st.columns(4)
+                    for i, img_path in enumerate(paths):
+                        col = cols[i % 4]
                         try:
-                            p = Path(img_path)
                             col.image(img_path, use_container_width=True)
                             included = col.checkbox(
                                 "Include",
                                 value=(img_path not in st.session_state.excluded_images),
-                                key=f"img_include_{i}",
+                                key=f"{key_prefix}_{i}",
                             )
-                            col.caption(p.name)
+                            col.caption(Path(img_path).name)
                             if included:
                                 st.session_state.excluded_images.discard(img_path)
                             else:
                                 st.session_state.excluded_images.add(img_path)
                         except Exception:
                             col.caption(f"⚠️ {img_path}")
+
+                # ── Recommended ────────────────────────────────────────────────
+                hdr_c, tog_c = st.columns([6, 1])
+                hdr_c.markdown(
+                    f"<div style='font-size:13px;font-weight:600;padding-top:6px;'>"
+                    f"Recommended &nbsp;"
+                    f"<span style='color:#6b6b74;font-weight:400;"
+                    f"font-family:IBM Plex Mono,monospace;font-size:11px;'>"
+                    f"{len(recommended)} image(s)"
+                    + (f" · <span style='color:#ff7849;'>{excluded_count} excluded total</span>" if excluded_count else "")
+                    + "</span></div>",
+                    unsafe_allow_html=True,
+                )
+                if tog_c.button(
+                    "Hide ▲" if st.session_state.show_img_gallery else "Show ▼",
+                    key="toggle_gallery", use_container_width=True,
+                ):
+                    st.session_state.show_img_gallery = not st.session_state.show_img_gallery
+                    st.rerun()
+
+                if st.session_state.show_img_gallery:
+                    rc1, rc2, _ = st.columns([1, 1, 5])
+                    if rc1.button("Exclude all", key="excl_rec", use_container_width=True):
+                        st.session_state.excluded_images.update(recommended)
+                        st.rerun()
+                    if rc2.button("Include all", key="incl_rec", use_container_width=True):
+                        for p in recommended:
+                            st.session_state.excluded_images.discard(p)
+                        st.rerun()
+                    st.divider()
+                    if recommended:
+                        _render_image_grid(recommended, "rec")
+                    else:
+                        st.caption("No recommended images on these pages.")
+
+                # ── Unsure ─────────────────────────────────────────────────────
+                if unsure:
+                    st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+                    uhdr_c, utog_c = st.columns([6, 1])
+                    uhdr_c.markdown(
+                        f"<div style='font-size:13px;font-weight:600;padding-top:6px;'>"
+                        f"Unsure &nbsp;"
+                        f"<span style='color:#6b6b74;font-weight:400;"
+                        f"font-family:IBM Plex Mono,monospace;font-size:11px;'>"
+                        f"{len(unsure)} image(s) · likely backgrounds or blurs"
+                        f"</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    if utog_c.button(
+                        "Hide ▲" if st.session_state.show_unsure_gallery else "Show ▼",
+                        key="toggle_unsure", use_container_width=True,
+                    ):
+                        st.session_state.show_unsure_gallery = not st.session_state.show_unsure_gallery
+                        st.rerun()
+
+                    if st.session_state.show_unsure_gallery:
+                        uc1, uc2, _ = st.columns([1, 1, 5])
+                        if uc1.button("Exclude all unsure", key="excl_unsure", use_container_width=True):
+                            st.session_state.excluded_images.update(unsure)
+                            st.rerun()
+                        if uc2.button("Include all unsure", key="incl_unsure", use_container_width=True):
+                            for p in unsure:
+                                st.session_state.excluded_images.discard(p)
+                            st.rerun()
+                        st.divider()
+                        _render_image_grid(unsure, "uns")
             else:
                 st.caption("No images extracted (text-only PDF or all images below size threshold).")
 
