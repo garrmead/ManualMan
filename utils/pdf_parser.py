@@ -25,11 +25,10 @@ _MIN_IMAGE_PX     = 100    # skip raster images smaller than this in either dime
 _MIN_CHUNK_CHARS  = 40     # skip near-empty text chunks (headers, page numbers)
 _MIN_TABLE_ROWS   = 2      # skip single-row "tables" (often just a styled box)
 _MIN_TABLE_COLS   = 2      # skip single-column "tables" (often just a list)
-_MIN_DRAWINGS     = 15     # pages with more vector drawing commands than this are
-                           # rendered as full-page images to capture performance curves,
-                           # schematics, and dimensional drawings that are not embedded
-                           # raster images and would otherwise be missed entirely
-_PAGE_RENDER_DPI  = 2.0    # render scale (2× = ~144 dpi, good quality for technical drawings)
+_MIN_DRAWINGS              = 15   # render page if drawings >= this AND no raster images found
+_MIN_DRAWINGS_WITH_RASTER  = 40   # render page if drawings >= this AND raster images already exist
+                                  # (higher bar avoids rendering every page that has a logo/photo)
+_PAGE_RENDER_DPI           = 2.0  # render scale (2× = ~144 dpi, good for technical drawings)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -239,13 +238,23 @@ def _extract_page_images(
     """
     Extract images from a page, save to disk, return file paths.
 
-    Two extraction strategies:
+    Two extraction strategies run independently:
+
     1. Embedded raster images (JPEG/PNG/etc. stored inside the PDF).
-    2. Full-page render for pages whose content is vector graphics — performance
-       curves, schematics, and dimensional drawings in pump manuals are almost
-       always drawn with PDF path commands, not embedded as raster images.
-       We detect these by counting drawing commands; pages above _MIN_DRAWINGS
-       with no embedded rasters are rendered to PNG at _PAGE_RENDER_DPI scale.
+       Captures pump photos, scanned plates, etc.
+
+    2. Full-page render for pages with significant vector drawing commands.
+       Dimensional drawings, performance curves, and schematics in pump manuals
+       are almost always vector PDF graphics — get_images() returns nothing for
+       them. We render the full page to PNG so Claude Vision can classify it.
+
+       Thresholds:
+       - Pages with NO embedded rasters: render if drawings >= _MIN_DRAWINGS
+       - Pages WITH embedded rasters:    render if drawings >= _MIN_DRAWINGS_WITH_RASTER
+         (higher bar avoids rendering every text page that has a logo/photo)
+
+    Both strategies run so a page with a raster photo AND a vector dimensional
+    drawing produces both files.
     """
     saved = []
     safe_stem = re.sub(r"[^\w\-]", "_", Path(pdf_name).stem)
@@ -270,20 +279,20 @@ def _extract_page_images(
             continue
 
     # ── Strategy 2: full-page render for vector-heavy pages ───────────────────
-    # Only renders pages with no extracted raster images to avoid duplicates.
-    # Pump manual performance curves and engineering drawings are typically
-    # vector PDF graphics — get_images() returns nothing for them.
-    if not saved:
-        try:
-            if len(page.get_drawings()) >= _MIN_DRAWINGS:
-                filename = f"p{page_num:03d}_page.png"
-                path     = image_dir / filename
-                if not path.exists():
-                    mat = fitz.Matrix(_PAGE_RENDER_DPI, _PAGE_RENDER_DPI)
-                    pix = page.get_pixmap(matrix=mat, alpha=False)
-                    pix.save(str(path))
-                saved.append(str(path))
-        except Exception:
-            pass
+    try:
+        n_drawings = len(page.get_drawings())
+        # Use a lower threshold for pages with no raster images, higher when
+        # raster images already exist (avoids rendering every page with a logo).
+        threshold = _MIN_DRAWINGS if not saved else _MIN_DRAWINGS_WITH_RASTER
+        if n_drawings >= threshold:
+            filename = f"p{page_num:03d}_page.png"
+            path     = image_dir / filename
+            if not path.exists():
+                mat = fitz.Matrix(_PAGE_RENDER_DPI, _PAGE_RENDER_DPI)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                pix.save(str(path))
+            saved.append(str(path))
+    except Exception:
+        pass
 
     return saved
