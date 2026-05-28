@@ -8,6 +8,7 @@ import pandas as pd
 load_dotenv()
 
 import re
+import base64
 
 import anthropic
 
@@ -747,7 +748,10 @@ with tab_parse:
             progress = st.progress(0, text="Starting…")
             for i, f in enumerate(uploaded_files):
                 progress.progress(i / len(uploaded_files), text=f"Parsing {f.name}…")
-                all_chunks.extend(extract_chunks_from_pdf(f.getvalue(), f.name))
+                pdf_bytes = f.getvalue()
+                # Save PDF to disk so it's available for download in the Manuals tab
+                (config.UPLOADS_DIR / f.name).write_bytes(pdf_bytes)
+                all_chunks.extend(extract_chunks_from_pdf(pdf_bytes, f.name))
             progress.progress(1.0, text="Done!")
             progress.empty()
 
@@ -1173,7 +1177,7 @@ with tab_manuals:
         # Card grid — 3 per row
         cols = st.columns(3)
         for i, entry in enumerate(indexed_pdfs):
-            accent, bg = _COVER_PALETTES[i % len(_COVER_PALETTES)]
+            accent, bg  = _COVER_PALETTES[i % len(_COVER_PALETTES)]
             manufacturer = entry.get("manufacturer", "")
             product_line = entry.get("product_line", "")
             doc_type     = entry.get("doc_type", "")
@@ -1182,21 +1186,19 @@ with tab_manuals:
             subtitle     = manufacturer or doc_type or ""
             meta_tags    = " · ".join(filter(None, [doc_type, revision]))
             chunk_label  = f"{entry['text_chunks']} text · {entry['image_chunks']} img"
+            pdf_path     = config.UPLOADS_DIR / entry["source_pdf"]
+            pdf_on_disk  = pdf_path.exists()
 
             with cols[i % 3]:
                 st.markdown(
                     f"""
                     <div style="
                         border:1px solid #2a2a2f;border-radius:8px;
-                        overflow:hidden;margin-bottom:16px;
+                        overflow:hidden;margin-bottom:8px;
                         box-shadow:0 1px 0 rgba(0,0,0,0.08),2px 2px 0 #2a2a2f;
                         background:#1a1a1e;
                     ">
-                      <!-- Cover spine -->
-                      <div style="
-                        height:6px;background:{accent};
-                      "></div>
-                      <!-- Cover body -->
+                      <div style="height:6px;background:{accent};"></div>
                       <div style="
                         padding:16px;
                         background:repeating-linear-gradient(
@@ -1212,24 +1214,72 @@ with tab_manuals:
                         <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;
                           color:#6b6b74;">{meta_tags or entry['source_pdf']}</div>
                       </div>
-                      <!-- Footer -->
                       <div style="
                         padding:8px 16px;border-top:1px solid #2a2a2f;
                         display:flex;justify-content:space-between;align-items:center;
                       ">
                         <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;
                           color:#6b6b74;">{chunk_label}</span>
+                        {'<span style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#4ade80;">● PDF saved</span>' if pdf_on_disk else '<span style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#6b6b74;">re-parse to enable download</span>'}
                       </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
-                if st.button("Remove", key=f"del_{entry['source_pdf']}", use_container_width=True):
+
+                # Action buttons
+                btn_cols = st.columns(2) if pdf_on_disk else st.columns(1)
+
+                if pdf_on_disk:
+                    # Download button
+                    btn_cols[0].download_button(
+                        "Download PDF",
+                        data=pdf_path.read_bytes(),
+                        file_name=entry["source_pdf"],
+                        mime="application/pdf",
+                        key=f"dl_{entry['source_pdf']}",
+                        use_container_width=True,
+                    )
+
+                    # Inline viewer toggle
+                    view_key = f"view_pdf_{entry['source_pdf']}"
+                    if view_key not in st.session_state:
+                        st.session_state[view_key] = False
+                    if btn_cols[1].button(
+                        "Hide PDF ▲" if st.session_state[view_key] else "View PDF ▼",
+                        key=f"viewbtn_{entry['source_pdf']}",
+                        use_container_width=True,
+                    ):
+                        st.session_state[view_key] = not st.session_state[view_key]
+                        st.rerun()
+
+                # Remove button (full width when no PDF on disk)
+                remove_col = st.columns([1])[0]
+                if remove_col.button("Remove from index", key=f"del_{entry['source_pdf']}", use_container_width=True):
                     n = delete_pdf_from_index(entry["source_pdf"])
                     st.success(f"Removed {n} chunks for **{entry['source_pdf']}**.")
                     st.rerun()
 
+        # ── Inline PDF viewers (rendered below cards, full width) ──────────────
         st.divider()
+        for entry in indexed_pdfs:
+            view_key = f"view_pdf_{entry['source_pdf']}"
+            if st.session_state.get(view_key, False):
+                pdf_path = config.UPLOADS_DIR / entry["source_pdf"]
+                if pdf_path.exists():
+                    st.markdown(
+                        f"<div style='font-size:13px;font-weight:600;margin-bottom:8px;'>"
+                        f"{entry['source_pdf']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    b64 = base64.b64encode(pdf_path.read_bytes()).decode()
+                    st.markdown(
+                        f'<iframe src="data:application/pdf;base64,{b64}" '
+                        f'width="100%" height="800px" '
+                        f'style="border:1px solid #2a2a2f;border-radius:6px;"></iframe>',
+                        unsafe_allow_html=True,
+                    )
+
         total_all = get_total_chunk_count()
         st.markdown(
             f"<span class='mm-mono' style='color:#6b6b74;'>"
