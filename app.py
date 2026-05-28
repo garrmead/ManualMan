@@ -744,38 +744,59 @@ with tab_parse:
 
         # ── Editable chunk table ───────────────────────────────────────────────
         if st.session_state.chunks_df is not None:
-            st.subheader("Chunk Editor")
-            st.caption(
-                "✏️ Double-click **Chunk Text** to edit.  \n"
-                "🏷️ **Tags** — comma-separated, e.g. `model-number, curve-data`.  \n"
-                "☑️ Uncheck **Keep?** to exclude a chunk."
+            n_chunks = len(st.session_state.chunks_df)
+            st.markdown(
+                f"<div style='display:flex;align-items:baseline;gap:10px;margin-bottom:6px;'>"
+                f"<span style='font-size:16px;font-weight:600;'>Chunk Editor</span>"
+                f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#6b6b74;'>"
+                f"{n_chunks} chunk(s) extracted</span>"
+                f"</div>",
+                unsafe_allow_html=True,
             )
 
-            edited_df = st.data_editor(
-                st.session_state.chunks_df,
-                key=f"chunk_editor_{st.session_state.parse_version}",
-                column_config={
-                    "keep":       st.column_config.CheckboxColumn("Keep?", width="small"),
-                    "type":       st.column_config.TextColumn("Type", disabled=True, width="small"),
-                    "source_pdf": st.column_config.TextColumn("Source PDF", disabled=True, width="medium"),
-                    "page":       st.column_config.NumberColumn("Page", disabled=True, width="small", format="%d"),
-                    "text":       st.column_config.TextColumn("Chunk Text", width="large"),
-                    "tags":       st.column_config.TextColumn("Tags", width="medium"),
-                },
-                hide_index=True,
-                use_container_width=True,
-                height=450,
-                num_rows="fixed",
-            )
+            if n_chunks == 0:
+                st.warning(
+                    "No text chunks were extracted from this PDF. "
+                    "This usually means the PDF is **scanned** (image-only pages with no text layer). "
+                    "OCR would be needed to extract text from scanned documents. "
+                    "However, any images (curves, drawings) extracted above can still be committed."
+                )
+            else:
+                st.caption(
+                    "Double-click **Chunk Text** to edit · "
+                    "**Tags** — comma-separated, e.g. `model-number, curve-data` · "
+                    "Uncheck **Keep?** to exclude a chunk."
+                )
 
-            st.session_state.edited_df = edited_df
-            keep_count  = int(edited_df["keep"].sum())
-            total_count = len(edited_df)
-            skipped     = total_count - keep_count
-            st.caption(
-                f"**{keep_count}** of **{total_count}** chunks will be indexed"
-                + (f" · {skipped} excluded" if skipped else "")
-            )
+            if n_chunks > 0:
+                edited_df = st.data_editor(
+                    st.session_state.chunks_df,
+                    key=f"chunk_editor_{st.session_state.parse_version}",
+                    column_config={
+                        "keep":       st.column_config.CheckboxColumn("Keep?", width="small"),
+                        "type":       st.column_config.TextColumn("Type", disabled=True, width="small"),
+                        "source_pdf": st.column_config.TextColumn("Source PDF", disabled=True, width="medium"),
+                        "page":       st.column_config.NumberColumn("Page", disabled=True, width="small", format="%d"),
+                        "text":       st.column_config.TextColumn("Chunk Text", width="large"),
+                        "tags":       st.column_config.TextColumn("Tags", width="medium"),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    height=450,
+                    num_rows="fixed",
+                )
+                st.session_state.edited_df = edited_df
+                keep_count  = int(edited_df["keep"].sum())
+                total_count = len(edited_df)
+                skipped     = total_count - keep_count
+                st.caption(
+                    f"**{keep_count}** of **{total_count}** chunks will be indexed"
+                    + (f" · {skipped} excluded" if skipped else "")
+                )
+            else:
+                # No text chunks — still allow committing images only
+                st.session_state.edited_df = st.session_state.chunks_df
+                keep_count = 0
 
             # ── Image gallery with exclusion checkboxes ────────────────────────
             all_image_paths: list[str] = []

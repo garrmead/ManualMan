@@ -20,11 +20,16 @@ import pdfplumber
 import config
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-_CHARS_PER_TOKEN = 4      # rough chars/token for English technical text
-_MIN_IMAGE_PX    = 100    # skip images smaller than this in either dimension
-_MIN_CHUNK_CHARS = 40     # skip near-empty text chunks (headers, page numbers)
-_MIN_TABLE_ROWS  = 2      # skip single-row "tables" (often just a styled box)
-_MIN_TABLE_COLS  = 2      # skip single-column "tables" (often just a list)
+_CHARS_PER_TOKEN  = 4      # rough chars/token for English technical text
+_MIN_IMAGE_PX     = 100    # skip raster images smaller than this in either dimension
+_MIN_CHUNK_CHARS  = 40     # skip near-empty text chunks (headers, page numbers)
+_MIN_TABLE_ROWS   = 2      # skip single-row "tables" (often just a styled box)
+_MIN_TABLE_COLS   = 2      # skip single-column "tables" (often just a list)
+_MIN_DRAWINGS     = 15     # pages with more vector drawing commands than this are
+                           # rendered as full-page images to capture performance curves,
+                           # schematics, and dimensional drawings that are not embedded
+                           # raster images and would otherwise be missed entirely
+_PAGE_RENDER_DPI  = 2.0    # render scale (2× = ~144 dpi, good quality for technical drawings)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -231,12 +236,23 @@ def _extract_page_images(
     page_num: int,
     pdf_name: str,
 ) -> list[str]:
-    """Extract images from a page, save to disk, return file paths."""
+    """
+    Extract images from a page, save to disk, return file paths.
+
+    Two extraction strategies:
+    1. Embedded raster images (JPEG/PNG/etc. stored inside the PDF).
+    2. Full-page render for pages whose content is vector graphics — performance
+       curves, schematics, and dimensional drawings in pump manuals are almost
+       always drawn with PDF path commands, not embedded as raster images.
+       We detect these by counting drawing commands; pages above _MIN_DRAWINGS
+       with no embedded rasters are rendered to PNG at _PAGE_RENDER_DPI scale.
+    """
     saved = []
     safe_stem = re.sub(r"[^\w\-]", "_", Path(pdf_name).stem)
     image_dir = config.IMAGES_DIR / safe_stem
     image_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Strategy 1: embedded raster images ────────────────────────────────────
     for img_index, img_info in enumerate(page.get_images(full=True)):
         xref = img_info[0]
         try:
@@ -252,5 +268,22 @@ def _extract_page_images(
             saved.append(str(path))
         except Exception:
             continue
+
+    # ── Strategy 2: full-page render for vector-heavy pages ───────────────────
+    # Only renders pages with no extracted raster images to avoid duplicates.
+    # Pump manual performance curves and engineering drawings are typically
+    # vector PDF graphics — get_images() returns nothing for them.
+    if not saved:
+        try:
+            if len(page.get_drawings()) >= _MIN_DRAWINGS:
+                filename = f"p{page_num:03d}_page.png"
+                path     = image_dir / filename
+                if not path.exists():
+                    mat = fitz.Matrix(_PAGE_RENDER_DPI, _PAGE_RENDER_DPI)
+                    pix = page.get_pixmap(matrix=mat, alpha=False)
+                    pix.save(str(path))
+                saved.append(str(path))
+        except Exception:
+            pass
 
     return saved
