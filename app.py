@@ -673,7 +673,7 @@ with st.sidebar:
         f"<div style='font-size:12px;line-height:2;'>"
         f"<span style='color:#4ade80;'>●</span> Voyage AI (embed)&nbsp;&nbsp;"
         f"<span style='color:#4ade80;'>●</span> Anthropic (LLM)<br>"
-        f"<span style='color:#ff7849;'>●</span> Hybrid BM25+Vector&nbsp;&nbsp;"
+        f"<span style='color:#4ade80;'>●</span> Hybrid BM25+Vector&nbsp;&nbsp;"
         f"<span style='color:{'#4ade80' if config.RERANKER_ENABLED else '#6b6b74'};'>●</span>"
         f" Reranker {reranker_label}"
         f"</div>",
