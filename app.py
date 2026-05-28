@@ -237,26 +237,37 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
   background-color: var(--bg-2) !important;
 }
 
-[data-testid="stChatMessage"] {
-  border-radius: var(--radius-lg) !important;
-  border: 1px solid var(--border) !important;
-  background-color: var(--bg-2) !important;
-  padding: 16px !important;
-  margin-bottom: 10px !important;
-  box-shadow: var(--shadow-card) !important;
-}
-[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
-  background-color: var(--surface) !important;
-  border-color: var(--border-strong) !important;
-}
-[data-testid="chatAvatarIcon-assistant"] {
-  background-color: #0a0a0b !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--radius-sm) !important;
-}
+/* ── Claude-style chat messages — no avatars ── */
+[data-testid="chatAvatarIcon-assistant"],
 [data-testid="chatAvatarIcon-user"] {
-  background: linear-gradient(135deg, var(--accent) 0%, #ff9a76 100%) !important;
-  border-radius: var(--radius-pill) !important;
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+[data-testid="stChatMessage"] {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 20px 0 !important;
+  margin-bottom: 0 !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+[data-testid="stChatMessage"]:last-of-type {
+  border-bottom: none !important;
+}
+
+/* User turn — subtle pill background */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+  background: var(--surface) !important;
+  border-radius: var(--radius-lg) !important;
+  padding: 16px 20px !important;
+  border: none !important;
+  border-bottom: none !important;
+  margin-bottom: 4px !important;
 }
 
 [data-testid="stChatInput"] {
@@ -612,6 +623,7 @@ _SS_DEFAULTS = {
     "last_committed":      0,
     "pdf_metadata":        {},
     "pending_question":    "",
+    "chat_input_draft":    "",
     "excluded_images":     set(),
     "pdf_view_target":     None,   # {"source_pdf": str, "page": int}
     "retrieval_filters":   {},
@@ -1065,11 +1077,10 @@ with tab_chat:
                 "<div style='margin-bottom:12px;'><span class='mm-label'>Try asking</span></div>",
                 unsafe_allow_html=True,
             )
-            ncols = 3
-            prompt_cols = st.columns(ncols)
-            for i, prompt in enumerate(_SUGGESTED_PROMPTS[:9]):
-                if prompt_cols[i % ncols].button(prompt, key=f"suggested_{i}", use_container_width=True):
-                    st.session_state.pending_question = prompt
+            prompt_cols = st.columns(3)
+            for i, prompt in enumerate(_SUGGESTED_PROMPTS[:3]):
+                if prompt_cols[i].button(prompt, key=f"suggested_{i}", use_container_width=True):
+                    st.session_state.chat_input_draft = prompt
                     st.rerun()
 
         # ── Render history ──────────────────────────────────────────────────────
@@ -1098,12 +1109,32 @@ with tab_chat:
 
         # ── Input handling ──────────────────────────────────────────────────────
         question = None
+
+        # Follow-up chips auto-submit immediately (different from suggested prompts)
         if st.session_state.pending_question:
             question = st.session_state.pending_question
             st.session_state.pending_question = ""
-        typed = st.chat_input("Ask anything across your indexed manuals…")
-        if typed:
-            question = typed
+
+        # Pre-fillable chat input — suggested prompt clicks populate this field
+        if not question:
+            with st.form(key="chat_form", clear_on_submit=True):
+                in_col, btn_col = st.columns([11, 1])
+                with in_col:
+                    user_text = st.text_input(
+                        "",
+                        value=st.session_state.chat_input_draft,
+                        placeholder="Ask anything across your indexed manuals…",
+                        label_visibility="collapsed",
+                    )
+                with btn_col:
+                    submitted = st.form_submit_button("↑", use_container_width=True)
+
+            # Clear draft after it has been loaded into the widget
+            if st.session_state.chat_input_draft:
+                st.session_state.chat_input_draft = ""
+
+            if submitted and user_text.strip():
+                question = user_text.strip()
 
         if question:
             # Detect intent before adding to history
