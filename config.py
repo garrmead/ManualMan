@@ -1,5 +1,4 @@
 # config.py — Central place for all tunable settings.
-# If you want to experiment, change values here — no hunting through code.
 
 from pathlib import Path
 import os
@@ -9,43 +8,55 @@ DATA_DIR        = Path("data")
 UPLOADS_DIR     = DATA_DIR / "uploads"
 IMAGES_DIR      = DATA_DIR / "extracted_images"
 CHROMA_DIR      = DATA_DIR / "chroma_db"
+BM25_INDEX_FILE = DATA_DIR / "bm25_index.json"
 
 # ── Chunking ──────────────────────────────────────────────────────────────────
-# DECISION: 512 tokens with 64 overlap is a solid starting point for technical
-# manuals. If answers feel incomplete, raise CHUNK_SIZE to 1024. If they feel
-# unfocused or off-topic, drop it to 256.
-CHUNK_SIZE    = 512
-CHUNK_OVERLAP = 64
+CHUNK_SIZE    = 512   # tokens
+CHUNK_OVERLAP = 64    # tokens
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
-# DECISION: Top 5 chunks per query. Raise to 8 if answers miss important
-# context; lower to 3 if responses feel padded or you hit token-limit errors.
-TOP_K = 5
+TOP_K               = 8      # candidates from each retriever before reranking
+FINAL_TOP_K         = 5      # results returned after reranking
+MIN_RELEVANCE_SCORE = 0.35   # lowered slightly; reranker provides second-pass filtering
 
-# Chunks scoring below this cosine similarity are dropped before Claude sees
-# them. Raise toward 0.6 if answers feel off-topic; lower toward 0.3 if valid
-# content is being missed. Also adjustable via the sidebar slider at runtime.
-MIN_RELEVANCE_SCORE = 0.45
+# Hybrid fusion weights (must sum to 1.0)
+HYBRID_VECTOR_WEIGHT = 0.6
+HYBRID_BM25_WEIGHT   = 0.4
+
+# Reciprocal Rank Fusion constant (higher → less steep score falloff)
+RRF_K = 60
+
+# ── Cross-encoder reranking ───────────────────────────────────────────────────
+RERANKER_ENABLED = True
+# HuggingFace model ID — downloaded lazily on first use (~80 MB)
+RERANKER_MODEL   = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+# ── OCR ───────────────────────────────────────────────────────────────────────
+# Pages with fewer than this many chars trigger Claude Vision OCR fallback
+OCR_MIN_PAGE_CHARS = 80
+
+# ── Entity extraction ─────────────────────────────────────────────────────────
+ENTITY_EXTRACTION_ENABLED = True
+# Use haiku for entity extraction (fast, cheap, good enough for structured output)
+ENTITY_MODEL = "claude-haiku-4-5-20251001"
+
+# ── Troubleshooting mode ──────────────────────────────────────────────────────
+TROUBLESHOOT_BOOST = 1.25   # multiply score for troubleshooting chunks on TS queries
 
 # ── Conversation memory ───────────────────────────────────────────────────────
-# Number of past question/answer pairs sent to Claude for follow-up context.
-# Raise if conversations run long; lower to save tokens.
 MAX_HISTORY_TURNS = 3
 
 # ── Embeddings ────────────────────────────────────────────────────────────────
-VOYAGE_MODEL        = "voyage-3"   # Voyage AI embedding model
-EMBEDDING_DIMENSION = 1024         # voyage-3 output size (don't change)
+VOYAGE_MODEL        = "voyage-3"
+EMBEDDING_DIMENSION = 1024
 
-# ── Generation model ──────────────────────────────────────────────────────────
-# DECISION: claude-sonnet-4-6 balances quality and cost well for this use case.
-# Swap to claude-opus-4-7 for harder questions; claude-haiku-4-5-20251001 if
-# you want faster/cheaper responses.
+# ── Generation ────────────────────────────────────────────────────────────────
 ANTHROPIC_MODEL = "claude-sonnet-4-6"
-MAX_TOKENS      = 2048   # Maximum length of each generated answer
+MAX_TOKENS      = 2048
 
 # ── Vector store ──────────────────────────────────────────────────────────────
-CHROMA_COLLECTION = "pump_manuals"   # Name of the ChromaDB collection
+CHROMA_COLLECTION = "pump_manuals"
 
-# ── API keys (loaded from .env) ───────────────────────────────────────────────
+# ── API keys ──────────────────────────────────────────────────────────────────
 VOYAGE_API_KEY    = os.getenv("VOYAGE_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")

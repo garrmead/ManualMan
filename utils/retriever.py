@@ -1,7 +1,16 @@
 # utils/retriever.py
 #
-# Retrieval half of RAG: embed the question, search ChromaDB, apply the
-# relevance threshold, and format results for Claude's context window.
+# Hybrid retrieval pipeline:
+#   1. Dense vector search (Voyage AI + ChromaDB)
+#   2. BM25 keyword search
+#   3. Reciprocal Rank Fusion (RRF) merge
+#   4. Troubleshooting-chunk boost
+#   5. Cross-encoder reranking
+#   6. Relevance threshold filter
+#
+# For exact-match technical queries (model numbers, part numbers, torque specs),
+# BM25 handles what semantic search misses. RRF prevents either system from
+# dominating when both have strong signals.
 
 import json
 
@@ -9,37 +18,66 @@ import chromadb
 import voyageai
 
 import config
+from utils.bm25_index import search as bm25_search
+from utils.troubleshoot import classify_query, get_troubleshoot_system_addendum
 
+
+# ── RRF merge ─────────────────────────────────────────────────────────────────
+
+def _rrf_merge(
+    vector_ids:  list[str],
+    bm25_ids:    list[str],
+    vector_w:    float = config.HYBRID_VECTOR_WEIGHT,
+    bm25_w:      float = config.HYBRID_BM25_WEIGHT,
+    k:           int   = config.RRF_K,
+) -> list[tuple[str, float]]:
+    """
+    Reciprocal Rank Fusion.
+    Returns [(chunk_id, rrf_score), ...] sorted descending.
+    """
+    scores: dict[str, float] = {}
+    for rank, cid in enumerate(vector_ids):
+        scores[cid] = scores.get(cid, 0.0) + vector_w * (1.0 / (k + rank + 1))
+    for rank, cid in enumerate(bm25_ids):
+        scores[cid] = scores.get(cid, 0.0) + bm25_w * (1.0 / (k + rank + 1))
+    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+
+# ── Main retrieval function ───────────────────────────────────────────────────
 
 def retrieve(
-    question: str,
-    top_k: int = config.TOP_K,
+    question:  str,
+    top_k:     int   = config.FINAL_TOP_K,
     min_score: float = config.MIN_RELEVANCE_SCORE,
+    filters:   dict  = None,
 ) -> list[dict]:
     """
-    Embed the question and return the top_k most relevant chunks from ChromaDB,
-    filtered to those scoring >= min_score.
+    Hybrid retrieval with reranking.
 
-    Each returned dict contains:
-        text         — chunk text sent to Claude as context
-        source_pdf   — original PDF filename
-        page_number  — 1-based page number
-        tags         — user-assigned tags (may be empty)
-        image_paths  — page-level image file paths (text chunks)
-        score        — cosine similarity 0–1
-        chunk_type   — "text" or "image"
-        image_path   — file path (image chunks only)
-        image_type   — vocabulary key (image chunks only)
-        manufacturer — from manual metadata (may be empty)
-        product_line — from manual metadata (may be empty)
-        doc_type     — from manual metadata (may be empty)
-        revision     — from manual metadata (may be empty)
+    Parameters
+    ----------
+    question  : user's query
+    top_k     : number of results to return after reranking
+    min_score : minimum vector similarity to keep a chunk
+    filters   : optional ChromaDB where-clause e.g. {"manufacturer": "Goulds"}
+
+    Returns
+    -------
+    List of chunk dicts, each with:
+        text, source_pdf, page_number, tags, image_paths,
+        score (vector similarity), bm25_score, rrf_score, rerank_score,
+        chunk_type, image_path, image_type, manufacturer, product_line,
+        doc_type, revision, section_title, chunk_subtype, is_troubleshooting
     """
+    # ── Query intent ──────────────────────────────────────────────────────────
+    intent = classify_query(question)
+
+    # ── Vector search ─────────────────────────────────────────────────────────
     voyage_client = voyageai.Client(api_key=config.VOYAGE_API_KEY)
     result = voyage_client.embed(
         [question],
         model=config.VOYAGE_MODEL,
-        input_type="query",   # asymmetric: "query" for questions, "document" at index time
+        input_type="query",
     )
     query_embedding = result.embeddings[0]
 
@@ -53,74 +91,113 @@ def retrieve(
     if count == 0:
         return []
 
-    results = collection.query(
+    candidate_k = max(config.TOP_K, top_k * 3)   # over-fetch for RRF + reranking
+
+    query_kwargs = dict(
         query_embeddings=[query_embedding],
-        n_results=min(top_k, count),
+        n_results=min(candidate_k, count),
         include=["documents", "metadatas", "distances"],
     )
+    if filters:
+        query_kwargs["where"] = filters
 
-    chunks = []
+    vector_results = collection.query(**query_kwargs)
+
+    # Build chunk dicts from vector results
+    vector_chunks: dict[str, dict] = {}
+    vector_rank_ids: list[str] = []
+
     for doc, meta, dist in zip(
-        results["documents"][0],
-        results["metadatas"][0],
-        results["distances"][0],
+        vector_results["documents"][0],
+        vector_results["metadatas"][0],
+        vector_results["distances"][0],
     ):
-        score = round(1.0 - dist, 3)   # distance → similarity
-
-        # Apply relevance threshold — drop chunks that aren't similar enough
+        score = round(1.0 - dist, 4)
         if score < min_score:
             continue
+        cid = meta.get("chunk_id", doc[:32])  # use stored chunk_id if available
+        vector_chunks[cid] = _build_chunk_dict(doc, meta, score)
+        vector_rank_ids.append(cid)
 
-        chunks.append({
-            "text":         doc,
-            "source_pdf":   meta.get("source_pdf", "Unknown"),
-            "page_number":  int(meta.get("page_number", 0)),
-            "tags":         meta.get("tags", ""),
-            "image_paths":  json.loads(meta.get("image_paths", "[]")),
-            "score":        score,
-            "chunk_type":   meta.get("chunk_type", "text"),
-            "image_path":   meta.get("image_path", ""),
-            "image_type":   meta.get("image_type", ""),
-            # Manual metadata fields (empty string if not set at commit time)
-            "manufacturer": meta.get("manufacturer", ""),
-            "product_line": meta.get("product_line", ""),
-            "doc_type":     meta.get("doc_type", ""),
-            "revision":     meta.get("revision", ""),
-        })
+    # ── BM25 search ───────────────────────────────────────────────────────────
+    # Enrich BM25 query with troubleshooting keywords when in TS mode
+    bm25_query = question
+    if intent["is_troubleshooting"] and intent["boost_keywords"]:
+        bm25_query += " " + " ".join(intent["boost_keywords"])
 
-    return chunks
+    bm25_hits = bm25_search(bm25_query, top_k=candidate_k)
+    bm25_rank_ids = [h["chunk_id"] for h in bm25_hits]
+    bm25_score_map = {h["chunk_id"]: h["bm25_score"] for h in bm25_hits}
 
+    # ── RRF merge ─────────────────────────────────────────────────────────────
+    all_ids   = set(vector_rank_ids) | set(bm25_rank_ids)
+    merged    = _rrf_merge(vector_rank_ids, bm25_rank_ids)
+
+    # Hydrate any BM25-only results from ChromaDB
+    bm25_only_ids = [cid for cid, _ in merged if cid not in vector_chunks]
+    if bm25_only_ids:
+        _hydrate_from_chroma(bm25_only_ids, vector_chunks, collection)
+
+    # Build final candidate list in RRF order
+    candidates: list[dict] = []
+    for cid, rrf_score in merged:
+        if cid not in vector_chunks:
+            continue
+        chunk = dict(vector_chunks[cid])
+        chunk["rrf_score"]   = round(rrf_score, 6)
+        chunk["bm25_score"]  = round(bm25_score_map.get(cid, 0.0), 4)
+        candidates.append(chunk)
+
+    if not candidates:
+        return []
+
+    # ── Troubleshooting boost ─────────────────────────────────────────────────
+    if intent["is_troubleshooting"]:
+        for chunk in candidates:
+            if chunk.get("chunk_subtype") == "troubleshooting" or \
+               chunk.get("is_troubleshooting") == "true":
+                chunk["rrf_score"] *= config.TROUBLESHOOT_BOOST
+
+        candidates.sort(key=lambda c: c["rrf_score"], reverse=True)
+
+    # ── Cross-encoder reranking ───────────────────────────────────────────────
+    rerank_pool = candidates[: max(top_k * 4, 20)]
+    try:
+        from utils.reranker import rerank
+        reranked = rerank(question, rerank_pool, top_n=top_k)
+    except Exception:
+        reranked = rerank_pool[:top_k]
+
+    # Annotate with query intent for downstream UI use
+    for chunk in reranked:
+        chunk["query_is_troubleshooting"] = intent["is_troubleshooting"]
+
+    return reranked
+
+
+# ── Context builders ──────────────────────────────────────────────────────────
 
 def build_context_prompt(chunks: list[dict]) -> str:
-    """
-    Format retrieved chunks into a numbered context block for Claude.
-    Includes manual metadata in each source header so Claude can cite it.
-    """
     if not chunks:
         return "(No relevant context found in the indexed manuals.)"
 
     parts = []
     for i, chunk in enumerate(chunks, 1):
-        # Build a rich source label that includes manual metadata when present
         meta_parts = []
-        if chunk.get("manufacturer"):
-            meta_parts.append(chunk["manufacturer"])
-        if chunk.get("product_line"):
-            meta_parts.append(chunk["product_line"])
-        if chunk.get("doc_type"):
-            meta_parts.append(chunk["doc_type"])
-        if chunk.get("revision"):
-            meta_parts.append(chunk["revision"])
-
+        for k in ("manufacturer", "product_line", "doc_type", "revision"):
+            if chunk.get(k):
+                meta_parts.append(chunk[k])
         meta_str = " · ".join(meta_parts)
-        base = f"{chunk['source_pdf']}"
+        base = chunk["source_pdf"]
         if meta_str:
             base += f" ({meta_str})"
         base += f", Page {chunk['page_number']}"
+        if chunk.get("section_title"):
+            base += f" § {chunk['section_title']}"
 
         if chunk.get("chunk_type") == "image":
             from utils.vision import IMAGE_TYPE_LABELS
-            label = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Image")
+            label  = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Image")
             header = f"[Source {i}: {base} — {label} (image)]"
         else:
             header = f"[Source {i}: {base}]"
@@ -131,37 +208,69 @@ def build_context_prompt(chunks: list[dict]) -> str:
 
 
 def build_chat_messages(
-    question: str,
-    context: str,
+    question:     str,
+    context:      str,
     chat_history: list[dict],
+    is_troubleshooting: bool = False,   # reserved for future per-turn routing
 ) -> list[dict]:
-    """
-    Build the messages array for Claude, prepending recent conversation history
-    so follow-up questions have context.
-
-    History pairs are included oldest-first, up to MAX_HISTORY_TURNS complete
-    pairs. The current question (with retrieved context) is always last.
-    """
     messages = []
-
-    # Extract only user/assistant turns (skip any other roles)
-    past = [m for m in chat_history if m["role"] in ("user", "assistant")]
-
-    # Take the last N complete pairs (N*2 messages)
-    recent = past[-(config.MAX_HISTORY_TURNS * 2):]
-
-    # If history starts with an assistant message, drop it to keep proper
-    # user→assistant alternation required by the Anthropic API
+    past     = [m for m in chat_history if m["role"] in ("user", "assistant")]
+    recent   = past[-(config.MAX_HISTORY_TURNS * 2):]
     if recent and recent[0]["role"] == "assistant":
         recent = recent[1:]
-
     for msg in recent:
         messages.append({"role": msg["role"], "content": msg["content"]})
 
-    # Current turn: question with freshly retrieved context
-    messages.append({
-        "role": "user",
-        "content": f"Context from pump manuals:\n\n{context}\n\n---\n\nQuestion: {question}",
-    })
-
+    # Troubleshooting addendum is injected into the system prompt in app.py —
+    # not here — to avoid duplicating it across the system + user turn.
+    content = f"Context from pump manuals:\n\n{context}\n\n---\n\nQuestion: {question}"
+    messages.append({"role": "user", "content": content})
     return messages
+
+
+# ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _build_chunk_dict(doc: str, meta: dict, score: float) -> dict:
+    return {
+        "text":         doc,
+        "source_pdf":   meta.get("source_pdf", "Unknown"),
+        "page_number":  int(meta.get("page_number", 0)),
+        "tags":         meta.get("tags", ""),
+        "image_paths":  json.loads(meta.get("image_paths", "[]")),
+        "score":        score,
+        "chunk_type":   meta.get("chunk_type", "text"),
+        "image_path":   meta.get("image_path", ""),
+        "image_type":   meta.get("image_type", ""),
+        "manufacturer": meta.get("manufacturer", ""),
+        "product_line": meta.get("product_line", ""),
+        "doc_type":     meta.get("doc_type", ""),
+        "revision":     meta.get("revision", ""),
+        "section_title":   meta.get("section_title", ""),
+        "chunk_subtype":   meta.get("chunk_subtype", "text"),
+        "is_troubleshooting": meta.get("is_troubleshooting", "false"),
+        # Scores filled in later
+        "rrf_score":    0.0,
+        "bm25_score":   0.0,
+        "rerank_score": 0.0,
+    }
+
+
+def _hydrate_from_chroma(
+    chunk_ids: list[str],
+    target: dict,
+    collection: chromadb.Collection,
+) -> None:
+    """Fetch BM25-only results from ChromaDB by chunk_id and add to target dict."""
+    if not chunk_ids:
+        return
+    try:
+        res = collection.get(
+            ids=chunk_ids,
+            include=["documents", "metadatas"],
+        )
+        for doc, meta in zip(res["documents"], res["metadatas"]):
+            cid = meta.get("chunk_id", doc[:32])
+            if cid not in target:
+                target[cid] = _build_chunk_dict(doc, meta, 0.0)
+    except Exception:
+        pass

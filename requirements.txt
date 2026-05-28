@@ -8,21 +8,22 @@ streamlit>=1.35.0
 python-dotenv>=1.0.0
 
 # ── LlamaIndex core + integrations ────────────────────────────────────────────
-# Each integration is its own pip package in LlamaIndex v0.10+
 llama-index-core>=0.11.0
-llama-index-embeddings-voyageai>=0.2.0      # Voyage AI embeddings
-llama-index-vector-stores-chroma>=0.2.0     # ChromaDB vector store
-llama-index-llms-anthropic>=0.3.0           # Claude via Anthropic API
-llama-index-readers-file>=0.2.0             # PDF / file readers
+llama-index-embeddings-voyageai>=0.2.0
+llama-index-vector-stores-chroma>=0.2.0
+llama-index-llms-anthropic>=0.3.0
+llama-index-readers-file>=0.2.0
 
 # ── Vector database ───────────────────────────────────────────────────────────
 chromadb>=0.5.0
 
+# ── Hybrid BM25 retrieval ─────────────────────────────────────────────────────
+rank-bm25>=0.2.2
+
+# ── Cross-encoder reranking (optional — downloaded lazily on first use) ───────
+sentence-transformers>=3.0.0
+
 # ── PDF parsing + image extraction ───────────────────────────────────────────
-# PyMuPDF handles text, images, and page metadata.
-# pdfplumber handles structured table extraction — tables in pump manuals
-# (selection tables, dimensional data, performance specs) are extracted as
-# proper Markdown rather than garbled plain text.
 PyMuPDF>=1.24.0
 pdfplumber>=0.11.0
 
@@ -33,5 +34,8 @@ voyageai>=0.3.0
 # ── Image handling ────────────────────────────────────────────────────────────
 Pillow>=10.0.0
 
-# ── Data handling (for the editable chunk table in Phase 2) ──────────────────
+# ── Data handling ────────────────────────────────────────────────────────────
 pandas>=2.0.0
+
+# ── Numerics (entity unit parsing) ───────────────────────────────────────────
+numpy>=1.26.0
