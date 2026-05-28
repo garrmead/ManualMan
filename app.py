@@ -259,7 +259,11 @@ h3 { font-size: 1rem !important; font-weight: 600 !important; }
   border-radius: var(--radius-md) !important;
   overflow: hidden !important;
 }
-.dvn-scroller {
+/* Force the glide-data-grid canvas wrapper to use dark bg so
+   Streamlit's theme injection picks up the right cell colors */
+[data-testid="stDataEditor"] > div,
+.dvn-scroller,
+.dvn-scroller > div {
   background-color: var(--bg-2) !important;
 }
 
@@ -521,6 +525,7 @@ if "chunks_df"          not in st.session_state: st.session_state.chunks_df     
 if "parse_version"      not in st.session_state: st.session_state.parse_version      = 0
 if "edited_df"          not in st.session_state: st.session_state.edited_df          = None
 if "chat_history"       not in st.session_state: st.session_state.chat_history       = []
+if "show_img_gallery"   not in st.session_state: st.session_state.show_img_gallery   = True
 if "last_committed"     not in st.session_state: st.session_state.last_committed     = 0
 if "pdf_metadata"       not in st.session_state: st.session_state.pdf_metadata       = {}
 if "pending_question"   not in st.session_state: st.session_state.pending_question   = ""
@@ -781,17 +786,31 @@ with tab_parse:
 
             if all_image_paths:
                 excluded_count = len(st.session_state.excluded_images & set(all_image_paths))
-                with st.expander(
-                    f"Extracted Images ({len(all_image_paths)}"
-                    + (f" · {excluded_count} excluded" if excluded_count else "")
-                    + ")",
-                    expanded=False,
+
+                # Toggle button — stays open across reruns via session state
+                hdr_col, toggle_col = st.columns([6, 1])
+                hdr_col.markdown(
+                    f"<div style='font-size:13px;font-weight:600;padding-top:6px;'>"
+                    f"Extracted Images &nbsp;"
+                    f"<span style='color:#6b6b74;font-weight:400;font-family:IBM Plex Mono,monospace;font-size:11px;'>"
+                    f"{len(all_image_paths)} total"
+                    + (f" · <span style='color:#ff7849;'>{excluded_count} excluded</span>" if excluded_count else "")
+                    + "</span></div>",
+                    unsafe_allow_html=True,
+                )
+                if toggle_col.button(
+                    "Hide ▲" if st.session_state.show_img_gallery else "Show ▼",
+                    key="toggle_gallery",
+                    use_container_width=True,
                 ):
+                    st.session_state.show_img_gallery = not st.session_state.show_img_gallery
+                    st.rerun()
+
+                if st.session_state.show_img_gallery:
                     st.caption(
-                        "Uncheck images to exclude them from indexing. "
-                        "Blurry or solid-color images are usually background fills — safe to exclude."
+                        "Uncheck images to exclude from indexing. "
+                        "Solid-color or blurry images are usually PDF background fills — safe to exclude."
                     )
-                    # Select/deselect all buttons
                     sel_col1, sel_col2, _ = st.columns([1, 1, 5])
                     if sel_col1.button("Exclude all", key="excl_all", use_container_width=True):
                         st.session_state.excluded_images = set(all_image_paths)
