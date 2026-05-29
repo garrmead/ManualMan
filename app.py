@@ -1574,8 +1574,7 @@ if _active == "chattmc":
 
                     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-                    # Stream into a placeholder so we can replace it with
-                    # progressive-disclosure / image-first rendering once complete.
+                    # Stream into a placeholder with a live cursor
                     stream_placeholder = st.empty()
                     collected: list[str] = []
                     with client.messages.stream(
@@ -1593,9 +1592,9 @@ if _active == "chattmc":
                     raw_answer = "".join(collected)
                     answer, follow_ups = _parse_follow_ups(raw_answer)
 
-                    # Replace streamed text with final progressive-disclosure render
-                    stream_placeholder.empty()
-                    _render_answer(answer, chunks, is_visual, show_scores)
+                    # Drop the cursor — leave streamed text visible until rerun
+                    # applies progressive disclosure from history. No empty() flash.
+                    stream_placeholder.markdown(answer)
 
             st.session_state.chat_history.append({
                 "role":                "assistant",
