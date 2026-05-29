@@ -1107,9 +1107,25 @@ if _active == "upload":
         unsafe_allow_html=True,
     )
 
-    if not uploaded_files:
-        st.info("Drop one or more PDFs in the sidebar uploader, fill in the metadata, then click **Parse PDFs**.")
+    # Page-level uploader (primary); sidebar uploader is a convenience fallback
+    page_files = st.file_uploader(
+        "Drop PDFs here",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key="page_uploader",
+        label_visibility="collapsed",
+    )
+    effective_files = page_files if page_files else uploaded_files
+
+    if not effective_files:
+        st.markdown(
+            "<div style='text-align:center;padding:16px 0 8px;"
+            "font-family:IBM Plex Mono,monospace;font-size:11px;text-transform:uppercase;"
+            "letter-spacing:0.1em;color:var(--text-3);'>or drag and drop PDFs above</div>",
+            unsafe_allow_html=True,
+        )
     else:
+        uploaded_files = effective_files
         # ── Manual metadata ────────────────────────────────────────────────────
         st.subheader("Manual Metadata")
         st.caption("Stored with every chunk and shown in citations. Fill in once per PDF before parsing.")
@@ -1384,7 +1400,12 @@ if _active == "chattmc":
         if not st.session_state.chat_history:
             st.markdown(
                 f"""
-                <div style="text-align:center;padding:12vh 32px 48px;max-width:720px;margin:0 auto;">
+                <div style="text-align:center;padding:10vh 32px 48px;max-width:720px;margin:0 auto;">
+                  <!-- Wordmark -->
+                  <div style="font-family:'IBM Plex Sans',sans-serif;font-size:3.5rem;font-weight:700;
+                    letter-spacing:-0.04em;line-height:1;margin-bottom:28px;">
+                    Chat<span style="color:var(--accent);">TMC</span>
+                  </div>
                   <!-- Impeller badge -->
                   <div class="tmc-impeller-badge" style="color:var(--accent);width:72px;height:72px;
                     border-radius:18px;margin-bottom:24px;">
