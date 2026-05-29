@@ -539,6 +539,50 @@ input[type="checkbox"]:checked { accent-color: var(--accent) !important; }
   .tmc-manual-card, .tmc-prompt-row, .tmc-new-question-btn { transition: none !important; }
   [class*="stButton"] button { transition: none !important; }
 }
+
+/* ── Sidebar nav radio ── */
+[data-testid="stSidebar"] [data-testid="stRadio"] {
+  margin: 0 0 16px !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] > div {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+  display: flex !important;
+  align-items: center !important;
+  padding: 9px 12px !important;
+  border-radius: 8px !important;
+  border: 1px solid transparent !important;
+  cursor: pointer !important;
+  transition: background 0.12s ease, border-color 0.12s ease !important;
+  color: var(--text-2) !important;
+  font-family: 'IBM Plex Sans', sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.3 !important;
+  margin-bottom: 0 !important;
+  gap: 8px !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+  background: var(--accent-10) !important;
+  border-color: var(--accent-30) !important;
+  color: var(--text) !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label p {
+  font-size: 13px !important;
+  color: inherit !important;
+  margin: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
+  width: 0 !important; height: 0 !important;
+  opacity: 0 !important; position: absolute !important;
+}
 </style>
 """
 
@@ -894,6 +938,7 @@ _SS_DEFAULTS = {
     "pdf_view_target":     None,   # {"source_pdf": str, "page": int}
     "retrieval_filters":   {},
     "entity_extract_on":   True,
+    "active_screen":       "chattmc",
 }
 for k, v in _SS_DEFAULTS.items():
     if k not in st.session_state:
@@ -943,6 +988,24 @@ with st.sidebar:
         """,
         unsafe_allow_html=True,
     )
+
+    # ── Navigation ────────────────────────────────────────────────────────────
+    st.session_state.active_screen = st.radio(
+        "Navigation",
+        options=["chattmc", "library", "upload"],
+        format_func=lambda x: {
+            "chattmc": "ChatTMC",
+            "library": "Document Library",
+            "upload":  "File Upload",
+        }[x],
+        index=["chattmc", "library", "upload"].index(
+            st.session_state.get("active_screen", "chattmc")
+        ),
+        label_visibility="collapsed",
+        key="_nav_radio",
+    )
+
+    st.markdown("<hr style='margin:8px 0 12px;'>", unsafe_allow_html=True)
 
     # ── API status ────────────────────────────────────────────────────────────
     st.markdown("<div class='mm-label' style='margin-bottom:8px;'>System Status</div>", unsafe_allow_html=True)
@@ -1019,16 +1082,14 @@ with st.sidebar:
             st.caption(f"{f.name}  ({f.size / 1024:.0f} KB)")
 
 
-# ── Main tabs ─────────────────────────────────────────────────────────────────
-tab_chat, tab_manuals, tab_upload = st.tabs(
-    ["ChatTMC", "Document Library", "File Upload"]
-)
+# ── Screen routing (navigation lives in sidebar) ──────────────────────────────
+_active = st.session_state.get("active_screen", "chattmc")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — File Upload
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_upload:
+if _active == "upload":
     st.markdown(
         """
         <div style="padding:28px 0 20px;max-width:880px;">
@@ -1305,7 +1366,7 @@ with tab_upload:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — ChatTMC
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_chat:
+if _active == "chattmc":
     total_chunks = get_total_chunk_count()
     indexed_pdfs = get_indexed_pdfs()
 
@@ -1323,20 +1384,21 @@ with tab_chat:
         if not st.session_state.chat_history:
             st.markdown(
                 f"""
-                <div style="text-align:center;padding:10vh 32px 40px;max-width:680px;margin:0 auto;">
+                <div style="text-align:center;padding:12vh 32px 48px;max-width:720px;margin:0 auto;">
                   <!-- Impeller badge -->
-                  <div class="tmc-impeller-badge" style="color:var(--accent);">
-                    <div style="width:36px;height:36px;">{_IMPELLER_SVG}</div>
+                  <div class="tmc-impeller-badge" style="color:var(--accent);width:72px;height:72px;
+                    border-radius:18px;margin-bottom:24px;">
+                    <div style="width:44px;height:44px;">{_IMPELLER_SVG}</div>
                   </div>
                   <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;
-                    text-transform:uppercase;letter-spacing:0.12em;color:var(--text-3);margin-bottom:12px;">
+                    text-transform:uppercase;letter-spacing:0.14em;color:var(--text-3);margin-bottom:20px;">
                     ChatTMC &middot; {len(get_indexed_pdfs())} manuals indexed
                   </div>
-                  <h1 style="font-size:1.75rem;font-weight:600;letter-spacing:-0.02em;
-                    color:var(--text);margin:0 0 12px;text-wrap:balance;">
+                  <h1 style="font-size:2.25rem;font-weight:600;letter-spacing:-0.025em;
+                    color:var(--text);margin:0 0 18px;line-height:1.15;text-wrap:balance;">
                     Ask your technical library anything.
                   </h1>
-                  <p style="font-size:14px;color:var(--text-2);max-width:480px;margin:0 auto 0;line-height:1.6;">
+                  <p style="font-size:16px;color:var(--text-2);max-width:520px;margin:0 auto;line-height:1.7;">
                     Grounded, cited answers from every manual, spec sheet, and service bulletin in your library.
                   </p>
                 </div>
@@ -1351,25 +1413,6 @@ with tab_chat:
                 "</div>",
                 unsafe_allow_html=True,
             )
-
-        # ── Status bar ──────────────────────────────────────────────────────────
-        filter_desc = " · ".join(f"{k}: {v}" for k, v in st.session_state.retrieval_filters.items())
-        mode_label  = "Hybrid BM25+Vector" + (" + Rerank" if config.RERANKER_ENABLED else "")
-        st.markdown(
-            f"<div style='display:flex;gap:12px;align-items:center;flex-wrap:wrap;"
-            f"padding:8px 12px;background:var(--surface);border:1px solid var(--border);"
-            f"border-radius:6px;margin-bottom:1.25rem;'>"
-            f"<span class='mm-mono' style='color:var(--text-3);'>{total_chunks} chunks</span>"
-            f"<span style='color:var(--border);'>|</span>"
-            f"<span class='mm-mono' style='color:var(--text-3);'>{len(indexed_pdfs)} manual(s)</span>"
-            f"<span style='color:var(--border);'>|</span>"
-            f"<span class='mm-mono' style='color:var(--accent);'>{mode_label}</span>"
-            f"<span style='color:var(--border);'>|</span>"
-            f"<span class='mm-mono' style='color:var(--text-3);'>threshold {relevance_threshold:.2f}</span>"
-            + (f"<span style='color:var(--border);'>|</span><span class='mm-mono' style='color:#f59e0b;'>{filter_desc}</span>" if filter_desc else "")
-            + "</div>",
-            unsafe_allow_html=True,
-        )
 
         # ── Controls ────────────────────────────────────────────────────────────
         if st.session_state.chat_history:
@@ -1547,7 +1590,7 @@ with tab_chat:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — Document Library
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_manuals:
+if _active == "library":
     # Handle cross-tab PDF navigation target from chat citations
     nav_target = st.session_state.get("pdf_view_target")
     if nav_target:
