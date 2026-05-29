@@ -1393,8 +1393,7 @@ with tab_chat:
 
         # ── Render history ──────────────────────────────────────────────────────
         for msg in st.session_state.chat_history:
-            avatar = _AVATAR_USER if msg["role"] == "user" else _AVATAR_ASSISTANT
-            with st.chat_message(msg["role"], avatar=avatar):
+            with st.chat_message(msg["role"]):
                 if msg["role"] == "assistant" and msg.get("is_troubleshooting"):
                     st.markdown(
                         '<span class="mm-badge mm-badge-ts" style="margin-bottom:8px;display:inline-block;">'
@@ -1459,10 +1458,10 @@ with tab_chat:
             st.session_state.chat_history.append(
                 {"role": "user", "content": question, "chunks": None, "follow_ups": []}
             )
-            with st.chat_message("user", avatar=_AVATAR_USER):
+            with st.chat_message("user"):
                 st.markdown(question)
 
-            with st.chat_message("assistant", avatar=_AVATAR_ASSISTANT):
+            with st.chat_message("assistant"):
                 if is_ts:
                     st.markdown(
                         '<span class="mm-badge mm-badge-ts" style="margin-bottom:8px;display:inline-block;">'
