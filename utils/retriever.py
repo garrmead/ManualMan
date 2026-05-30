@@ -198,27 +198,47 @@ def retrieve(
     except Exception:
         reranked = rerank_pool[:top_k]
 
-    # For visual queries: guarantee at least 2 image chunks are present, then
-    # sort images to the FRONT of the list so they become [Source 1], [Source 2].
-    # The cross-encoder underscores image descriptions vs text passages, so
-    # injecting images at the end would bury them — they'd never get cited.
+    # ── Visual query: dedicated image pass ────────────────────────────────────
+    # BM25 may lack image chunk descriptions, and vector search can't reliably
+    # distinguish 1450 RPM from 1150 RPM. Fix: fetch EVERY indexed image from
+    # ChromaDB and run the cross-encoder directly against all of them. The
+    # reranker reads the description text and picks the best match by content.
     if is_visual:
-        reranked_ids = {c.get("chunk_id", c["text"][:32]) for c in reranked}
-        image_chunks_in = [c for c in reranked if c.get("chunk_type") == "image"]
-        if len(image_chunks_in) < 2:
-            pool_images = [
-                c for c in candidates
-                if c.get("chunk_type") == "image"
-                and c.get("chunk_id", c["text"][:32]) not in reranked_ids
-            ]
-            slots_needed = 2 - len(image_chunks_in)
-            for img in pool_images[:slots_needed]:
-                reranked.append(img)
+        try:
+            img_db = collection.get(
+                where={"chunk_type": "image"},
+                include=["documents", "metadatas"],
+            )
+            all_img_chunks: list[dict] = []
+            for doc, meta in zip(img_db.get("documents") or [], img_db.get("metadatas") or []):
+                c = _build_chunk_dict(doc, meta, 0.0)
+                c["bm25_score"] = bm25_score_map.get(meta.get("chunk_id", ""), 0.0)
+                all_img_chunks.append(c)
 
-        # Put images first so they are Source 1, Source 2 in the LLM context
-        img_chunks  = [c for c in reranked if c.get("chunk_type") == "image"]
-        text_chunks = [c for c in reranked if c.get("chunk_type") != "image"]
-        reranked = img_chunks + text_chunks
+            if all_img_chunks:
+                try:
+                    from utils.reranker import rerank as _img_rerank
+                    best_imgs = _img_rerank(question, all_img_chunks, top_n=3)
+                except Exception:
+                    # No reranker — fall back to BM25 score ordering
+                    best_imgs = sorted(all_img_chunks, key=lambda c: c["bm25_score"], reverse=True)[:3]
+
+                # Inject best images at the front, deduplicating against reranked
+                existing_ids = {c.get("chunk_id", c["text"][:32]) for c in reranked}
+                inserts = []
+                for img in best_imgs:
+                    cid = img.get("chunk_id", img["text"][:32])
+                    if cid not in existing_ids:
+                        inserts.append(img)
+                        existing_ids.add(cid)
+                reranked = inserts + reranked
+        except Exception:
+            pass
+
+        # Sort: all images first, then text
+        img_r  = [c for c in reranked if c.get("chunk_type") == "image"]
+        text_r = [c for c in reranked if c.get("chunk_type") != "image"]
+        reranked = img_r + text_r
 
     # Annotate with query intent for downstream UI use
     for chunk in reranked:
