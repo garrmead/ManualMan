@@ -210,21 +210,24 @@ def retrieve(
 
         print(f"\n[image-pass] {len(docs)} image(s) in index for query: {question!r}")
 
-        q_terms = set(bm25_tokenize(question))
-        # chunk_id → description term-overlap count (used to sort images after merge)
-        img_match_scores: dict[str, int] = {}
+        # chunk_id → BM25Plus score (length-normalised; prefers focused description
+        # over a composite that merely lists this RPM among many others)
+        img_bm25_scores: dict[str, float] = {}
 
         if docs:
-            all_img_scored: list[tuple[int, dict]] = []
+            all_img_scored: list[tuple[float, dict]] = []
             for doc, meta in zip(docs, metas):
-                desc_terms = set(bm25_tokenize(doc))
-                matched    = q_terms & desc_terms
-                hit_count  = len(matched)
-                cid        = meta.get("chunk_id", doc[:32])
-                img_match_scores[cid] = hit_count
-                print(f"  hits={hit_count:2d}  matched={sorted(matched)!r}  id=...{cid[-8:]}  desc={doc[:100]!r}")
-                if hit_count > 0:
-                    all_img_scored.append((hit_count, _build_chunk_dict(doc, meta, 0.0)))
+                cid   = meta.get("chunk_id", doc[:32])
+                score = bm25_score_map.get(cid, 0.0)
+                # Fallback: set-intersection for images the main BM25 didn't cover
+                if score == 0.0:
+                    q_terms    = set(bm25_tokenize(question))
+                    desc_terms = set(bm25_tokenize(doc))
+                    score      = len(q_terms & desc_terms) * 0.1
+                img_bm25_scores[cid] = score
+                print(f"  bm25={score:.3f}  id=...{cid[-8:]}  desc={doc[:100]!r}")
+                if score > 0:
+                    all_img_scored.append((score, _build_chunk_dict(doc, meta, 0.0)))
 
             # Insert newly found images (not already in reranked) at front
             existing_ids = {c.get("chunk_id", c["text"][:32]) for c in reranked}
@@ -239,16 +242,15 @@ def retrieve(
                 reranked = inserts + reranked
             print(f"  → inserted {len(inserts)} new image(s)")
 
-        # Re-sort ALL image chunks by description match score so the best-matching
-        # image is always Source 1, regardless of what the cross-encoder ranked first.
-        # Ties keep original (reranker) order via stable sort.
-        def _img_desc_key(chunk: dict) -> int:
+        # Re-sort ALL image chunks by BM25Plus score — the 1450 single-speed curve
+        # scores higher than the composite (which only mentions 1450 in passing).
+        def _img_bm25_key(chunk: dict) -> float:
             cid = chunk.get("chunk_id", chunk["text"][:32])
-            return -img_match_scores.get(cid, 0)  # descending
+            return -img_bm25_scores.get(cid, 0.0)  # descending
 
         img_r  = sorted(
             [c for c in reranked if c.get("chunk_type") == "image"],
-            key=_img_desc_key,
+            key=_img_bm25_key,
         )
         text_r = [c for c in reranked if c.get("chunk_type") != "image"]
         reranked = img_r + text_r
