@@ -38,6 +38,8 @@ def _tokenize(text: str) -> list[str]:
     their constituent parts ("3196", "ltx") so that a query of "3196" matches
     a document token of "3196-LTX".
     """
+    # Normalise comma-formatted numbers before tokenising (1,450 → 1450)
+    text = re.sub(r'(\d),(\d)', r'\1\2', text)
     text = text.lower()
     raw  = re.findall(r"[a-z0-9][a-z0-9\-\.]*", text)
     seen: set[str] = set()
@@ -100,6 +102,11 @@ def _rebuild_if_stale() -> None:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+def tokenize(text: str) -> list[str]:
+    """Public alias for the BM25 tokenizer — usable by other modules."""
+    return _tokenize(text)
+
 
 def add_chunks(chunks: list[dict]) -> None:
     """

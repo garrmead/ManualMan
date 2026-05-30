@@ -19,7 +19,7 @@ import chromadb
 import voyageai
 
 import config
-from utils.bm25_index import search as bm25_search
+from utils.bm25_index import search as bm25_search, tokenize as bm25_tokenize
 from utils.troubleshoot import classify_query, get_troubleshoot_system_addendum
 
 # Detects numeric tokens in a query (e.g. "1450", "316", "3-13")
@@ -198,19 +198,22 @@ def retrieve(
     except Exception:
         reranked = rerank_pool[:top_k]
 
-    # ── Visual query: description-first image matching ────────────────────────
-    # Fetch every indexed image from ChromaDB and score by BM25 keyword match
-    # against the description text. With manually-labeled descriptions this is
-    # the most reliable signal: "1450 RPM" in the query matches "1450 RPM" in
-    # the description exactly, without semantic confusion between similar speeds.
+    # ── Visual query: two-signal image retrieval ─────────────────────────────
+    # Signal 1 — Description BM25: score every image by keyword match against
+    #   its description. Uses the shared tokenizer (handles "1,450 RPM" etc.).
+    # Signal 2 — Page link: text chunks store which images are on their page.
+    #   If the best text chunk says "1450 RPM", its page images are the answer.
+    # Both signals are scored and combined; best images move to the front.
     if is_visual:
         try:
             from rank_bm25 import BM25Plus
 
-            img_db = collection.get(
-                where={"chunk_type": "image"},
-                include=["documents", "metadatas"],
-            )
+            # Apply sidebar filters to the image fetch too
+            img_where: dict = {"chunk_type": "image"}
+            if filters:
+                img_where = {"$and": [{"chunk_type": "image"}, filters]}
+
+            img_db = collection.get(where=img_where, include=["documents", "metadatas"])
             docs  = img_db.get("documents") or []
             metas = img_db.get("metadatas") or []
 
@@ -220,22 +223,38 @@ def retrieve(
                     for doc, meta in zip(docs, metas)
                 ]
 
-                def _tok(text: str) -> list[str]:
-                    return re.findall(r'\w+', text.lower())
-
-                corpus     = [_tok(c["text"]) for c in all_img_chunks]
+                # Signal 1: BM25 on description text (full text, correct tokenizer)
+                q_tokens   = bm25_tokenize(question)
+                corpus     = [bm25_tokenize(c["text"]) for c in all_img_chunks]
                 bm25_img   = BM25Plus(corpus)
-                img_scores = bm25_img.get_scores(_tok(question))
+                desc_scores = bm25_img.get_scores(q_tokens)
 
-                scored = sorted(
-                    zip(img_scores, all_img_chunks),
-                    key=lambda x: x[0],
-                    reverse=True,
-                )
-                # Take the top 3 that scored above zero
-                best_imgs = [c for score, c in scored if score > 0][:3]
+                # Signal 2: page link — find images on same page as top text chunks
+                top_pages: set[tuple] = set()
+                for chunk in candidates[:5]:
+                    if chunk.get("chunk_type") != "image":
+                        src = chunk.get("source_pdf", "")
+                        pg  = chunk.get("page_number", 0)
+                        if src and pg:
+                            top_pages.add((src, int(pg)))
 
-                # Inject at front, deduplicating against existing results
+                page_scores = [
+                    3.0 if (
+                        c.get("source_pdf"),
+                        int(c.get("page_number", 0)),
+                    ) in top_pages else 0.0
+                    for c in all_img_chunks
+                ]
+
+                # Combined score: description BM25 + page-link bonus
+                combined = [
+                    (desc_scores[i] + page_scores[i], all_img_chunks[i])
+                    for i in range(len(all_img_chunks))
+                ]
+                combined.sort(key=lambda x: x[0], reverse=True)
+                best_imgs = [c for score, c in combined if score > 0][:3]
+
+                # Inject at front, deduplicating
                 existing_ids = {c.get("chunk_id", c["text"][:32]) for c in reranked}
                 inserts = []
                 for img in best_imgs:
@@ -247,7 +266,7 @@ def retrieve(
         except Exception:
             pass
 
-        # Images always first so they become Source 1, Source 2 in LLM context
+        # Images always first → Source 1, Source 2 in LLM context
         img_r  = [c for c in reranked if c.get("chunk_type") == "image"]
         text_r = [c for c in reranked if c.get("chunk_type") != "image"]
         reranked = img_r + text_r
