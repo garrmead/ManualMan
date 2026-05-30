@@ -198,9 +198,10 @@ def retrieve(
     except Exception:
         reranked = rerank_pool[:top_k]
 
-    # For visual queries, guarantee at least 2 image chunks survive the reranker.
-    # The cross-encoder is trained on text passages and underscores image descriptions,
-    # so we inject the top-scored image chunks from the pre-rerank pool if needed.
+    # For visual queries: guarantee at least 2 image chunks are present, then
+    # sort images to the FRONT of the list so they become [Source 1], [Source 2].
+    # The cross-encoder underscores image descriptions vs text passages, so
+    # injecting images at the end would bury them — they'd never get cited.
     if is_visual:
         reranked_ids = {c.get("chunk_id", c["text"][:32]) for c in reranked}
         image_chunks_in = [c for c in reranked if c.get("chunk_type") == "image"]
@@ -213,6 +214,11 @@ def retrieve(
             slots_needed = 2 - len(image_chunks_in)
             for img in pool_images[:slots_needed]:
                 reranked.append(img)
+
+        # Put images first so they are Source 1, Source 2 in the LLM context
+        img_chunks  = [c for c in reranked if c.get("chunk_type") == "image"]
+        text_chunks = [c for c in reranked if c.get("chunk_type") != "image"]
+        reranked = img_chunks + text_chunks
 
     # Annotate with query intent for downstream UI use
     for chunk in reranked:

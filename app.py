@@ -611,21 +611,15 @@ You are ChatTMC, a technical knowledge assistant for pump equipment manuals \
 
 Rules:
 1. Answer using ONLY the provided context. Do not draw on outside knowledge.
-2. BREVITY FIRST: Lead with the single most important fact or value in one sentence. \
-   Put supporting detail after, not before.
-3. If an IMAGE chunk is cited (performance curve, drawing, diagram): say "See [Source N]" — \
-   the image renders automatically so do NOT describe or recreate its data. \
-   SPEED-CURVE RULE: When the user asks for a curve at a specific RPM, cite EVERY relevant \
-   curve source in context — single-speed AND composite. List the single-speed match first \
-   (if one exists), then the composite. A curve is "relevant" if its description mentions \
-   the requested RPM or a speed within ±50 RPM. Never suppress a source just because \
-   another more specific one exists — the user benefits from seeing both.
-4. Cite sources inline as [Source N] for every claim.
-5. For specs and tables: use a tight bullet list or table, not prose paragraphs.
-6. Only say "No supporting documentation found." when ZERO retrieved sources contain \
-   any relevant information. If a source partially matches (composite curve, multi-pump \
-   page, etc.), cite it — never say data is unavailable when a source exists.
-7. After your answer, on a new line write exactly: \
+2. BREVITY: Lead with the single most important fact in one sentence. Detail follows.
+3. IMAGE sources (curves, drawings, diagrams) render automatically in the UI. \
+   When an image source is relevant, write "See [Source N]" — do not describe or \
+   recreate the data in text. Cite every image source that matches the query.
+4. Cite every claim with [Source N]. Use the source number from the context exactly.
+5. Specs and tables: use bullet lists, not prose.
+6. Only say "No supporting documentation found." when no source contains anything \
+   relevant. If a source partially matches, cite it — it will display for the user.
+7. After your answer write exactly: \
    FOLLOW-UPS: <question 1> | <question 2> | <question 3> \
    Max 10 words each. Skip if answer was "No supporting documentation found."\
 """
@@ -805,16 +799,27 @@ def _render_inline_images(chunks: list[dict], answer_text: str = "") -> None:
 
 
 def _render_sources(chunks: list[dict], show_scores: bool = True) -> None:
-    text_chunks = [c for c in chunks if c.get("chunk_type") != "image"]
-    if not text_chunks:
+    if not chunks:
         return
 
+    img_count  = sum(1 for c in chunks if c.get("chunk_type") == "image")
+    text_count = sum(1 for c in chunks if c.get("chunk_type") != "image")
+    label_parts = []
+    if text_count:
+        label_parts.append(f"{text_count} text")
+    if img_count:
+        label_parts.append(f"{img_count} image")
     with st.expander(
-        f"Sources · {len(text_chunks)} chunk(s)", expanded=False
+        f"Sources · {' + '.join(label_parts)} chunk(s)", expanded=False
     ):
-        for i, chunk in enumerate(text_chunks, 1):
+        for i, chunk in enumerate(chunks, 1):
+            is_img  = chunk.get("chunk_type") == "image"
             subtype = chunk.get("chunk_subtype", "text")
             badge   = _SUBTYPE_BADGES.get(subtype, "")
+            if is_img:
+                from utils.vision import IMAGE_TYPE_LABELS
+                img_label = IMAGE_TYPE_LABELS.get(chunk.get("image_type", ""), "Image")
+                badge = f'<span class="mm-badge mm-badge-table">🖼 {img_label}</span>'
             ocr_b   = '<span class="mm-badge mm-badge-ocr">OCR</span>' if chunk.get("ocr_used") == "true" else ""
             ts_b    = '<span class="mm-badge mm-badge-ts">⚡TS</span>' if chunk.get("is_troubleshooting") == "true" else ""
 
@@ -830,7 +835,7 @@ def _render_sources(chunks: list[dict], show_scores: bool = True) -> None:
 
             if show_scores:
                 v_score = chunk.get("score", 0.0)
-                b_score = min(chunk.get("bm25_score", 0.0) / 10.0, 1.0)  # normalize BM25
+                b_score = min(chunk.get("bm25_score", 0.0) / 10.0, 1.0)
                 r_score = chunk.get("rerank_score", None)
                 score_html = (
                     f"<div style='display:flex;gap:16px;margin-bottom:6px;flex-wrap:wrap;'>"
@@ -838,20 +843,19 @@ def _render_sources(chunks: list[dict], show_scores: bool = True) -> None:
                     f"<div><span class='mm-label'>BM25</span>&nbsp;{_score_bar(b_score)}</div>"
                 )
                 if r_score is not None:
-                    # Cross-encoder scores are logits; normalize via sigmoid approximation
                     import math
                     r_norm = 1.0 / (1.0 + math.exp(-r_score / 2))
                     score_html += f"<div><span class='mm-label'>Rerank</span>&nbsp;{_score_bar(r_norm)}</div>"
                 score_html += "</div>"
                 st.markdown(score_html, unsafe_allow_html=True)
 
-            if chunk.get("tags"):
-                st.caption(f"Tags: {chunk['tags']}")
-
+            # Image chunks: show description as preview
             preview = chunk["text"][:400] + ("…" if len(chunk["text"]) > 400 else "")
             st.caption(preview)
 
-            # "View in Manuals tab" button — sets cross-tab navigation target
+            if chunk.get("tags"):
+                st.caption(f"Tags: {chunk['tags']}")
+
             btn_key = f"view_src_{id(chunk)}_{i}"
             if st.button(
                 f"View page {chunk['page_number']} →",
@@ -865,7 +869,7 @@ def _render_sources(chunks: list[dict], show_scores: bool = True) -> None:
                 st.toast(f"Opening {chunk['source_pdf']} p.{chunk['page_number']} — switch to Manuals tab", icon="📄")
                 st.rerun()
 
-            if i < len(text_chunks):
+            if i < len(chunks):
                 st.divider()
 
 
