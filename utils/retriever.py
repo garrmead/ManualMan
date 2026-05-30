@@ -198,32 +198,44 @@ def retrieve(
     except Exception:
         reranked = rerank_pool[:top_k]
 
-    # ── Visual query: dedicated image pass ────────────────────────────────────
-    # BM25 may lack image chunk descriptions, and vector search can't reliably
-    # distinguish 1450 RPM from 1150 RPM. Fix: fetch EVERY indexed image from
-    # ChromaDB and run the cross-encoder directly against all of them. The
-    # reranker reads the description text and picks the best match by content.
+    # ── Visual query: description-first image matching ────────────────────────
+    # Fetch every indexed image from ChromaDB and score by BM25 keyword match
+    # against the description text. With manually-labeled descriptions this is
+    # the most reliable signal: "1450 RPM" in the query matches "1450 RPM" in
+    # the description exactly, without semantic confusion between similar speeds.
     if is_visual:
         try:
+            from rank_bm25 import BM25Plus
+
             img_db = collection.get(
                 where={"chunk_type": "image"},
                 include=["documents", "metadatas"],
             )
-            all_img_chunks: list[dict] = []
-            for doc, meta in zip(img_db.get("documents") or [], img_db.get("metadatas") or []):
-                c = _build_chunk_dict(doc, meta, 0.0)
-                c["bm25_score"] = bm25_score_map.get(meta.get("chunk_id", ""), 0.0)
-                all_img_chunks.append(c)
+            docs  = img_db.get("documents") or []
+            metas = img_db.get("metadatas") or []
 
-            if all_img_chunks:
-                try:
-                    from utils.reranker import rerank as _img_rerank
-                    best_imgs = _img_rerank(question, all_img_chunks, top_n=3)
-                except Exception:
-                    # No reranker — fall back to BM25 score ordering
-                    best_imgs = sorted(all_img_chunks, key=lambda c: c["bm25_score"], reverse=True)[:3]
+            if docs:
+                all_img_chunks = [
+                    _build_chunk_dict(doc, meta, 0.0)
+                    for doc, meta in zip(docs, metas)
+                ]
 
-                # Inject best images at the front, deduplicating against reranked
+                def _tok(text: str) -> list[str]:
+                    return re.findall(r'\w+', text.lower())
+
+                corpus     = [_tok(c["text"]) for c in all_img_chunks]
+                bm25_img   = BM25Plus(corpus)
+                img_scores = bm25_img.get_scores(_tok(question))
+
+                scored = sorted(
+                    zip(img_scores, all_img_chunks),
+                    key=lambda x: x[0],
+                    reverse=True,
+                )
+                # Take the top 3 that scored above zero
+                best_imgs = [c for score, c in scored if score > 0][:3]
+
+                # Inject at front, deduplicating against existing results
                 existing_ids = {c.get("chunk_id", c["text"][:32]) for c in reranked}
                 inserts = []
                 for img in best_imgs:
@@ -235,7 +247,7 @@ def retrieve(
         except Exception:
             pass
 
-        # Sort: all images first, then text
+        # Images always first so they become Source 1, Source 2 in LLM context
         img_r  = [c for c in reranked if c.get("chunk_type") == "image"]
         text_r = [c for c in reranked if c.get("chunk_type") != "image"]
         reranked = img_r + text_r
