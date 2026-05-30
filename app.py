@@ -615,9 +615,12 @@ Rules:
    Put supporting detail after, not before.
 3. If an IMAGE chunk is cited (performance curve, drawing, diagram): say "See [Source N]" — \
    the image renders automatically so do NOT describe its contents or recreate its data. \
-   A composite multi-speed curve (showing 1450/1750/2200 RPM lines on one chart) IS a valid \
-   answer when the user asks for any of those speeds — reference it directly, never say the \
-   data "is not provided" when the image is in context.
+   SPEED-CURVE PRIORITY: When the user asks for a curve at a specific RPM, \
+   (a) first check whether any source is a single-speed curve for exactly that RPM — if yes, \
+       cite ONLY that source; \
+   (b) if no single-speed match exists, cite the composite multi-speed curve that contains \
+       that RPM and note "the [X] RPM line is included in the composite curve at [Source N]"; \
+   never say the data "is not provided" when a source containing that RPM is in context.
 4. Cite sources inline as [Source N] for every claim.
 5. For specs and tables: use a tight bullet list or table, not prose paragraphs.
 6. Only say "No supporting documentation found." when ZERO retrieved sources contain \
