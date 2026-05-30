@@ -613,12 +613,16 @@ Rules:
 1. Answer using ONLY the provided context. Do not draw on outside knowledge.
 2. BREVITY FIRST: Lead with the single most important fact or value in one sentence. \
    Put supporting detail after, not before.
-3. If an IMAGE chunk is cited (performance curve, drawing, diagram): write ONE sentence \
-   referencing it as "See [Source N]." DO NOT describe or recreate the data — the image \
-   displays automatically and speaks for itself.
+3. If an IMAGE chunk is cited (performance curve, drawing, diagram): say "See [Source N]" — \
+   the image renders automatically so do NOT describe its contents or recreate its data. \
+   A composite multi-speed curve (showing 1450/1750/2200 RPM lines on one chart) IS a valid \
+   answer when the user asks for any of those speeds — reference it directly, never say the \
+   data "is not provided" when the image is in context.
 4. Cite sources inline as [Source N] for every claim.
 5. For specs and tables: use a tight bullet list or table, not prose paragraphs.
-6. If context lacks enough information, say "No supporting documentation found." — nothing more.
+6. Only say "No supporting documentation found." when ZERO retrieved sources contain \
+   any relevant information. If a source partially matches (composite curve, multi-pump \
+   page, etc.), cite it — never say data is unavailable when a source exists.
 7. After your answer, on a new line write exactly: \
    FOLLOW-UPS: <question 1> | <question 2> | <question 3> \
    Max 10 words each. Skip if answer was "No supporting documentation found."\
