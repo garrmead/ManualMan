@@ -22,8 +22,13 @@ import config
 from utils.bm25_index import search as bm25_search, tokenize as bm25_tokenize
 from utils.troubleshoot import classify_query, get_troubleshoot_system_addendum
 
+_RETRIEVER_VERSION = "rpm-penalty-v1"
+
 # Detects numeric tokens in a query (e.g. "1450", "316", "3-13")
 _NUMBERS_RE = re.compile(r'\b\d+\b')
+
+# Matches RPM-range speeds (500–3000) for composite-curve penalty
+_RPM_RE = re.compile(r'\b([5-9]\d{2}|[12]\d{3})\b')
 
 
 # ── RRF merge ─────────────────────────────────────────────────────────────────
@@ -208,24 +213,28 @@ def retrieve(
         docs  = img_db.get("documents") or []
         metas = img_db.get("metadatas") or []
 
-        print(f"\n[image-pass] {len(docs)} image(s) in index for query: {question!r}")
+        print(f"\n[image-pass {_RETRIEVER_VERSION}] {len(docs)} image(s) for query: {question!r}")
 
-        # chunk_id → BM25Plus score (length-normalised; prefers focused description
-        # over a composite that merely lists this RPM among many others)
-        img_bm25_scores: dict[str, float] = {}
+        # Score each image description.
+        # hit_count  = query tokens found in description (set intersection)
+        # rpm_penalty = RPM-range numbers in description NOT in the query
+        #   → penalises composite curves that list many speeds ("850, 1150, 1450...")
+        #     over a focused single-speed description ("operating at 1450 RPM only")
+        q_terms     = set(bm25_tokenize(question))
+        query_rpms  = set(_RPM_RE.findall(question))
+        img_scores: dict[str, float] = {}
 
         if docs:
             all_img_scored: list[tuple[float, dict]] = []
             for doc, meta in zip(docs, metas):
-                cid   = meta.get("chunk_id", doc[:32])
-                score = bm25_score_map.get(cid, 0.0)
-                # Fallback: set-intersection for images the main BM25 didn't cover
-                if score == 0.0:
-                    q_terms    = set(bm25_tokenize(question))
-                    desc_terms = set(bm25_tokenize(doc))
-                    score      = len(q_terms & desc_terms) * 0.1
-                img_bm25_scores[cid] = score
-                print(f"  bm25={score:.3f}  id=...{cid[-8:]}  desc={doc[:100]!r}")
+                cid        = meta.get("chunk_id", doc[:32])
+                desc_terms = set(bm25_tokenize(doc))
+                hit_count  = len(q_terms & desc_terms)
+                extra_rpms = len(set(_RPM_RE.findall(doc)) - query_rpms)
+                score      = float(hit_count) - 0.5 * extra_rpms
+                img_scores[cid] = score
+                print(f"  score={score:5.1f}  hits={hit_count}  extra_rpms={extra_rpms}  "
+                      f"id=...{cid[-8:]}  desc={doc[:80]!r}")
                 if score > 0:
                     all_img_scored.append((score, _build_chunk_dict(doc, meta, 0.0)))
 
@@ -242,15 +251,15 @@ def retrieve(
                 reranked = inserts + reranked
             print(f"  → inserted {len(inserts)} new image(s)")
 
-        # Re-sort ALL image chunks by BM25Plus score — the 1450 single-speed curve
-        # scores higher than the composite (which only mentions 1450 in passing).
-        def _img_bm25_key(chunk: dict) -> float:
+        # Re-sort ALL image chunks by RPM-penalty score so the best match is
+        # always Source 1 regardless of what the cross-encoder ranked first.
+        def _img_score_key(chunk: dict) -> float:
             cid = chunk.get("chunk_id", chunk["text"][:32])
-            return -img_bm25_scores.get(cid, 0.0)  # descending
+            return -img_scores.get(cid, 0.0)  # descending
 
         img_r  = sorted(
             [c for c in reranked if c.get("chunk_type") == "image"],
-            key=_img_bm25_key,
+            key=_img_score_key,
         )
         text_r = [c for c in reranked if c.get("chunk_type") != "image"]
         reranked = img_r + text_r
