@@ -87,12 +87,16 @@ TYPE OPTIONS:
 
 Respond in EXACTLY this two-line format — no extra text:
 TYPE: <one type from the list above>
-DESCRIPTION: <2-5 sentences. ALWAYS lead with the most specific identifier visible: \
-pump size designation (e.g. "1.5x3-13", "3x4-13"), model number, or series name. \
-Then include all other visible specs: flow rates (GPM), head (ft), pressures (PSI), \
-impeller diameters (in), shaft sizes, RPM, dimensions (in/mm), materials, connection sizes. \
-The size designation is the most important field — a user will search for "1.5x3-13 curve" \
-and must find exactly this image. For photos/logos, one brief sentence is enough.>\
+DESCRIPTION: <2-5 sentences. \
+For PERFORMANCE CURVES: your FIRST sentence MUST state (a) whether this is a \
+"single-speed [N] RPM performance curve" (one speed line) or a \
+"composite multi-speed performance curve at [N1], [N2], [N3] RPM" (multiple speed lines), \
+and (b) the pump size designation (e.g. "1.5x3-13", "3x4-13") or model/series name. \
+Example first sentences: "Single-speed 1750 RPM performance curve for 3656 3x4-13 pump." \
+or "Composite multi-speed performance curve at 1150, 1450, 1750 RPM for 3656 3x4-13 pump." \
+Then add: flow range (GPM), head range (ft), impeller diameters shown (in), efficiency contours if visible. \
+For OTHER image types: lead with pump size designation or model number, then describe what is shown. \
+For photos/logos: one brief sentence is enough.>\
 """
 
 

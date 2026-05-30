@@ -198,6 +198,22 @@ def retrieve(
     except Exception:
         reranked = rerank_pool[:top_k]
 
+    # For visual queries, guarantee at least 2 image chunks survive the reranker.
+    # The cross-encoder is trained on text passages and underscores image descriptions,
+    # so we inject the top-scored image chunks from the pre-rerank pool if needed.
+    if is_visual:
+        reranked_ids = {c.get("chunk_id", c["text"][:32]) for c in reranked}
+        image_chunks_in = [c for c in reranked if c.get("chunk_type") == "image"]
+        if len(image_chunks_in) < 2:
+            pool_images = [
+                c for c in candidates
+                if c.get("chunk_type") == "image"
+                and c.get("chunk_id", c["text"][:32]) not in reranked_ids
+            ]
+            slots_needed = 2 - len(image_chunks_in)
+            for img in pool_images[:slots_needed]:
+                reranked.append(img)
+
     # Annotate with query intent for downstream UI use
     for chunk in reranked:
         chunk["query_is_troubleshooting"] = intent["is_troubleshooting"]
