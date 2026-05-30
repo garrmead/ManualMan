@@ -16,6 +16,7 @@ from utils.pdf_parser import extract_chunks_from_pdf, get_pdf_page_count
 from utils.embedder import (
     commit_chunks, get_indexed_pdfs, delete_pdf_from_index,
     get_total_chunk_count, get_manufacturers, get_doc_types,
+    get_image_chunks, update_image_descriptions,
 )
 from utils.retriever import retrieve, build_context_prompt, build_chat_messages
 from utils.troubleshoot import classify_query, get_troubleshoot_system_addendum
@@ -1777,3 +1778,108 @@ if _active == "library":
             f"{total_all} total chunks · {len(indexed_pdfs)} manual(s)</span>",
             unsafe_allow_html=True,
         )
+
+    # ── Image Description Editor ───────────────────────────────────────────────
+    st.markdown("<hr style='margin:32px 0 24px;'>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='margin-bottom:6px;'>"
+        "<span style='font-size:16px;font-weight:600;color:var(--text);'>Image Descriptions</span>"
+        "</div>"
+        "<p style='font-size:13px;color:var(--text-2);margin-bottom:20px;'>"
+        "Edit the description for any image to improve retrieval accuracy. "
+        "Include specific values like RPM, model size, or curve type — then click "
+        "<b>Save &amp; Re-index</b>."
+        "</p>",
+        unsafe_allow_html=True,
+    )
+
+    all_img_chunks = get_image_chunks()
+
+    if not all_img_chunks:
+        st.markdown(
+            "<div style='text-align:center;padding:32px 0;"
+            "font-size:13px;color:var(--text-3);'>No images indexed yet.</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        from utils.vision import IMAGE_TYPE_LABELS
+        from itertools import groupby
+
+        # Track edits across all images using widget keys
+        # Build a map of original descriptions from ChromaDB
+        orig_descs = {c["chunk_id"]: c["description"] for c in all_img_chunks}
+
+        for pdf_name, group_iter in groupby(all_img_chunks, key=lambda c: c["source_pdf"]):
+            imgs = list(group_iter)
+            with st.expander(f"📄  {pdf_name}  ·  {len(imgs)} image(s)", expanded=False):
+                for img in imgs:
+                    img_path = Path(img["image_path"])
+                    type_label = IMAGE_TYPE_LABELS.get(img["image_type"], img["image_type"])
+
+                    col_thumb, col_edit = st.columns([1, 2])
+                    with col_thumb:
+                        if img_path.exists():
+                            st.image(str(img_path), use_container_width=True)
+                        else:
+                            st.markdown(
+                                "<div style='height:80px;background:var(--surface-2);"
+                                "border-radius:6px;display:flex;align-items:center;"
+                                "justify-content:center;color:var(--text-3);"
+                                "font-size:11px;'>Image not on disk</div>",
+                                unsafe_allow_html=True,
+                            )
+                        st.markdown(
+                            f"<div style='font-family:IBM Plex Mono,monospace;font-size:9px;"
+                            f"text-transform:uppercase;letter-spacing:0.1em;color:var(--text-3);"
+                            f"margin-top:4px;'>p.{img['page_number']} · {type_label}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    with col_edit:
+                        st.text_area(
+                            "Description",
+                            value=img["description"],
+                            key=f"imgdesc_{img['chunk_id']}",
+                            height=130,
+                            label_visibility="collapsed",
+                            placeholder="Describe this image — include RPM, model size, curve type, dimensions…",
+                        )
+
+                    st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
+
+        # Collect changed descriptions
+        changed = {
+            cid: st.session_state[f"imgdesc_{cid}"]
+            for cid, orig in orig_descs.items()
+            if f"imgdesc_{cid}" in st.session_state
+            and st.session_state[f"imgdesc_{cid}"] != orig
+        }
+
+        col_save, col_info = st.columns([2, 5])
+        with col_save:
+            save_clicked = st.button(
+                f"Save & Re-index ({len(changed)} changed)" if changed else "Save & Re-index",
+                type="primary",
+                disabled=not changed,
+                use_container_width=True,
+            )
+        with col_info:
+            if changed:
+                st.markdown(
+                    f"<div style='font-size:13px;color:var(--accent);padding-top:8px;'>"
+                    f"{len(changed)} description(s) edited — unsaved</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    "<div style='font-size:13px;color:var(--text-3);padding-top:8px;'>"
+                    "Edit any description above to enable saving.</div>",
+                    unsafe_allow_html=True,
+                )
+
+        if save_clicked and changed:
+            prog = st.progress(0, text="Re-indexing…")
+            n = update_image_descriptions(changed)
+            prog.empty()
+            st.success(f"Re-indexed {n} image(s). Updated descriptions are live immediately.")
+            st.rerun()

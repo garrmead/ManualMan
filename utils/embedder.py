@@ -299,7 +299,95 @@ def commit_chunks(
 
 # ── Read helpers ──────────────────────────────────────────────────────────────
 
-def get_indexed_pdfs() -> list[dict]:
+def get_image_chunks() -> list[dict]:
+    """Return all indexed image chunks with descriptions and metadata."""
+    try:
+        collection = _get_collection()
+        results    = collection.get(
+            where={"chunk_type": "image"},
+            include=["documents", "metadatas"],
+        )
+        chunks = []
+        for cid, doc, meta in zip(
+            results["ids"], results["documents"], results["metadatas"]
+        ):
+            chunks.append({
+                "chunk_id":    cid,
+                "description": doc,
+                "image_path":  meta.get("image_path", ""),
+                "image_type":  meta.get("image_type", ""),
+                "source_pdf":  meta.get("source_pdf", ""),
+                "page_number": int(meta.get("page_number", 0)),
+                "manufacturer": meta.get("manufacturer", ""),
+                "product_line": meta.get("product_line", ""),
+            })
+        return sorted(chunks, key=lambda c: (c["source_pdf"], c["page_number"]))
+    except Exception:
+        return []
+
+
+def update_image_descriptions(updates: dict[str, str]) -> int:
+    """
+    Re-embed and upsert updated image descriptions.
+
+    Parameters
+    ----------
+    updates : {chunk_id: new_description_text}
+
+    Returns number of chunks successfully updated.
+    """
+    if not updates:
+        return 0
+
+    collection    = _get_collection()
+    voyage_client = voyageai.Client(api_key=config.VOYAGE_API_KEY)
+    updated       = 0
+
+    chunk_ids = list(updates.keys())
+    result    = collection.get(ids=chunk_ids, include=["metadatas"])
+    meta_map  = {cid: meta for cid, meta in zip(result["ids"], result["metadatas"])}
+
+    items     = []
+    bm25_rows = []
+    for cid, new_text in updates.items():
+        meta = meta_map.get(cid)
+        if not meta:
+            continue
+        items.append({"chunk_id": cid, "text": new_text, "metadata": meta})
+        bm25_rows.append({
+            "chunk_id":    cid,
+            "text":        new_text,
+            "source_pdf":  meta.get("source_pdf", ""),
+            "page_number": meta.get("page_number", 0),
+            "chunk_type":  "image",
+            "image_type":  meta.get("image_type", ""),
+            "manufacturer": meta.get("manufacturer", ""),
+            "product_line": meta.get("product_line", ""),
+            "doc_type":    meta.get("doc_type", ""),
+            "revision":    meta.get("revision", ""),
+        })
+
+    for batch_start in range(0, len(items), _EMBED_BATCH_SIZE):
+        batch = items[batch_start: batch_start + _EMBED_BATCH_SIZE]
+        texts = [b["text"] for b in batch]
+        emb   = voyage_client.embed(texts, model=config.VOYAGE_MODEL, input_type="document")
+        collection.upsert(
+            ids        = [b["chunk_id"] for b in batch],
+            embeddings = emb.embeddings,
+            documents  = texts,
+            metadatas  = [b["metadata"] for b in batch],
+        )
+        updated += len(batch)
+        if batch_start + _EMBED_BATCH_SIZE < len(items):
+            time.sleep(_RATE_LIMIT_PAUSE)
+
+    if bm25_rows:
+        bm25_add(bm25_rows)
+
+    return updated
+
+
+
     try:
         collection = _get_collection()
         results    = collection.get(include=["metadatas"])
