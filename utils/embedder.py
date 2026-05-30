@@ -387,7 +387,7 @@ def update_image_descriptions(updates: dict[str, str]) -> int:
     return updated
 
 
-
+def get_indexed_pdfs() -> list[dict]:
     try:
         collection = _get_collection()
         results    = collection.get(include=["metadatas"])
