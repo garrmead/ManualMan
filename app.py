@@ -614,13 +614,12 @@ Rules:
 2. BREVITY FIRST: Lead with the single most important fact or value in one sentence. \
    Put supporting detail after, not before.
 3. If an IMAGE chunk is cited (performance curve, drawing, diagram): say "See [Source N]" — \
-   the image renders automatically so do NOT describe its contents or recreate its data. \
-   SPEED-CURVE PRIORITY: When the user asks for a curve at a specific RPM, \
-   (a) first check whether any source is a single-speed curve for exactly that RPM — if yes, \
-       cite ONLY that source; \
-   (b) if no single-speed match exists, cite the composite multi-speed curve that contains \
-       that RPM and note "the [X] RPM line is included in the composite curve at [Source N]"; \
-   never say the data "is not provided" when a source containing that RPM is in context.
+   the image renders automatically so do NOT describe or recreate its data. \
+   SPEED-CURVE RULE: When the user asks for a curve at a specific RPM, cite EVERY relevant \
+   curve source in context — single-speed AND composite. List the single-speed match first \
+   (if one exists), then the composite. A curve is "relevant" if its description mentions \
+   the requested RPM or a speed within ±50 RPM. Never suppress a source just because \
+   another more specific one exists — the user benefits from seeing both.
 4. Cite sources inline as [Source N] for every claim.
 5. For specs and tables: use a tight bullet list or table, not prose paragraphs.
 6. Only say "No supporting documentation found." when ZERO retrieved sources contain \

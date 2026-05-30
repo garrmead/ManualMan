@@ -16,7 +16,7 @@ CHUNK_OVERLAP = 64    # tokens
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
 TOP_K               = 8      # candidates from each retriever before reranking
-FINAL_TOP_K         = 5      # results returned after reranking
+FINAL_TOP_K         = 7      # results returned after reranking
 MIN_RELEVANCE_SCORE = 0.35   # lowered slightly; reranker provides second-pass filtering
 
 # Hybrid fusion weights (must sum to 1.0)
@@ -29,7 +29,7 @@ EXACT_QUERY_BM25_WEIGHT   = 0.65
 EXACT_QUERY_VECTOR_WEIGHT = 0.35
 
 # Score multiplier for image chunks on visual queries (curves, drawings, diagrams)
-VISUAL_IMAGE_BOOST = 1.4
+VISUAL_IMAGE_BOOST = 1.6
 
 # Reciprocal Rank Fusion constant (higher → less steep score falloff)
 RRF_K = 60
