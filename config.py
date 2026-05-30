@@ -23,6 +23,14 @@ MIN_RELEVANCE_SCORE = 0.35   # lowered slightly; reranker provides second-pass f
 HYBRID_VECTOR_WEIGHT = 0.6
 HYBRID_BM25_WEIGHT   = 0.4
 
+# When the query contains explicit numbers (RPM, part numbers, torque values),
+# flip the weights so exact-match BM25 leads over semantic vector search.
+EXACT_QUERY_BM25_WEIGHT   = 0.65
+EXACT_QUERY_VECTOR_WEIGHT = 0.35
+
+# Score multiplier for image chunks on visual queries (curves, drawings, diagrams)
+VISUAL_IMAGE_BOOST = 1.4
+
 # Reciprocal Rank Fusion constant (higher → less steep score falloff)
 RRF_K = 60
 

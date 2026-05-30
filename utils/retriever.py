@@ -13,6 +13,7 @@
 # dominating when both have strong signals.
 
 import json
+import re
 
 import chromadb
 import voyageai
@@ -20,6 +21,9 @@ import voyageai
 import config
 from utils.bm25_index import search as bm25_search
 from utils.troubleshoot import classify_query, get_troubleshoot_system_addendum
+
+# Detects numeric tokens in a query (e.g. "1450", "316", "3-13")
+_NUMBERS_RE = re.compile(r'\b\d+\b')
 
 
 # ── RRF merge ─────────────────────────────────────────────────────────────────
@@ -71,6 +75,18 @@ def retrieve(
     """
     # ── Query intent ──────────────────────────────────────────────────────────
     intent = classify_query(question)
+    is_visual      = intent["is_visual_query"]
+    has_exact_nums = bool(_NUMBERS_RE.search(question))
+
+    # Numeric queries (RPM, part #, torque): BM25 wins on exact-match values.
+    # Semantic search can't distinguish "1450 RPM" from "1750 RPM" — they embed
+    # nearly identically. Flip the weights so BM25 leads when numbers are present.
+    if has_exact_nums:
+        vec_w  = config.EXACT_QUERY_VECTOR_WEIGHT   # 0.35
+        bm25_w = config.EXACT_QUERY_BM25_WEIGHT     # 0.65
+    else:
+        vec_w  = config.HYBRID_VECTOR_WEIGHT        # 0.6
+        bm25_w = config.HYBRID_BM25_WEIGHT          # 0.4
 
     # ── Vector search ─────────────────────────────────────────────────────────
     voyage_client = voyageai.Client(api_key=config.VOYAGE_API_KEY)
@@ -91,7 +107,12 @@ def retrieve(
     if count == 0:
         return []
 
-    candidate_k = max(config.TOP_K, top_k * 3)   # over-fetch for RRF + reranking
+    # Larger candidate pool for visual+exact queries — more images need to survive
+    # the initial fetch so the reranker can pick the right one.
+    if is_visual and has_exact_nums:
+        candidate_k = max(config.TOP_K, top_k * 5, 25)
+    else:
+        candidate_k = max(config.TOP_K, top_k * 3)
 
     query_kwargs = dict(
         query_embeddings=[query_embedding],
@@ -131,7 +152,7 @@ def retrieve(
 
     # ── RRF merge ─────────────────────────────────────────────────────────────
     all_ids   = set(vector_rank_ids) | set(bm25_rank_ids)
-    merged    = _rrf_merge(vector_rank_ids, bm25_rank_ids)
+    merged    = _rrf_merge(vector_rank_ids, bm25_rank_ids, vector_w=vec_w, bm25_w=bm25_w)
 
     # Hydrate any BM25-only results from ChromaDB
     bm25_only_ids = [cid for cid, _ in merged if cid not in vector_chunks]
@@ -157,11 +178,20 @@ def retrieve(
             if chunk.get("chunk_subtype") == "troubleshooting" or \
                chunk.get("is_troubleshooting") == "true":
                 chunk["rrf_score"] *= config.TROUBLESHOOT_BOOST
+        candidates.sort(key=lambda c: c["rrf_score"], reverse=True)
 
+    # ── Visual query boost ────────────────────────────────────────────────────
+    # For visual queries (curves, drawings, dimensions) boost image chunks so
+    # the right diagram surfaces above generic text chunks in the reranker pool.
+    if is_visual:
+        for chunk in candidates:
+            if chunk.get("chunk_type") == "image":
+                chunk["rrf_score"] *= config.VISUAL_IMAGE_BOOST
         candidates.sort(key=lambda c: c["rrf_score"], reverse=True)
 
     # ── Cross-encoder reranking ───────────────────────────────────────────────
-    rerank_pool = candidates[: max(top_k * 4, 20)]
+    pool_size   = max(top_k * 5, 25) if is_visual else max(top_k * 4, 20)
+    rerank_pool = candidates[:pool_size]
     try:
         from utils.reranker import rerank
         reranked = rerank(question, rerank_pool, top_n=top_k)
