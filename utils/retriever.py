@@ -198,73 +198,39 @@ def retrieve(
     except Exception:
         reranked = rerank_pool[:top_k]
 
-    # ── Visual query: two-signal image retrieval ─────────────────────────────
-    # Signal 1 — Description BM25: score every image by keyword match against
-    #   its description. Uses the shared tokenizer (handles "1,450 RPM" etc.).
-    # Signal 2 — Page link: text chunks store which images are on their page.
-    #   If the best text chunk says "1450 RPM", its page images are the answer.
-    # Both signals are scored and combined; best images move to the front.
+    # ── Visual query: description-first image retrieval ───────────────────────
     if is_visual:
-        try:
-            from rank_bm25 import BM25Plus
+        img_where: dict = {"chunk_type": "image"}
+        if filters:
+            img_where = {"$and": [{"chunk_type": "image"}, filters]}
 
-            # Apply sidebar filters to the image fetch too
-            img_where: dict = {"chunk_type": "image"}
-            if filters:
-                img_where = {"$and": [{"chunk_type": "image"}, filters]}
+        img_db = collection.get(where=img_where, include=["documents", "metadatas"])
+        docs  = img_db.get("documents") or []
+        metas = img_db.get("metadatas") or []
 
-            img_db = collection.get(where=img_where, include=["documents", "metadatas"])
-            docs  = img_db.get("documents") or []
-            metas = img_db.get("metadatas") or []
+        print(f"\n[image-pass] {len(docs)} image(s) in index for query: {question!r}")
 
-            if docs:
-                all_img_chunks = [
-                    _build_chunk_dict(doc, meta, 0.0)
-                    for doc, meta in zip(docs, metas)
-                ]
+        if docs:
+            q_terms = set(bm25_tokenize(question))
+            scored: list[tuple[int, dict]] = []
+            for doc, meta in zip(docs, metas):
+                desc_terms = set(bm25_tokenize(doc))
+                hit_count  = len(q_terms & desc_terms)
+                print(f"  hits={hit_count:2d}  desc={doc[:120]!r}")
+                scored.append((hit_count, _build_chunk_dict(doc, meta, 0.0)))
 
-                # Signal 1: BM25 on description text (full text, correct tokenizer)
-                q_tokens   = bm25_tokenize(question)
-                corpus     = [bm25_tokenize(c["text"]) for c in all_img_chunks]
-                bm25_img   = BM25Plus(corpus)
-                desc_scores = bm25_img.get_scores(q_tokens)
+            scored.sort(key=lambda x: x[0], reverse=True)
+            best_imgs = [c for cnt, c in scored if cnt > 0][:3]
+            print(f"  → selected {len(best_imgs)} image(s)")
 
-                # Signal 2: page link — find images on same page as top text chunks
-                top_pages: set[tuple] = set()
-                for chunk in candidates[:5]:
-                    if chunk.get("chunk_type") != "image":
-                        src = chunk.get("source_pdf", "")
-                        pg  = chunk.get("page_number", 0)
-                        if src and pg:
-                            top_pages.add((src, int(pg)))
-
-                page_scores = [
-                    3.0 if (
-                        c.get("source_pdf"),
-                        int(c.get("page_number", 0)),
-                    ) in top_pages else 0.0
-                    for c in all_img_chunks
-                ]
-
-                # Combined score: description BM25 + page-link bonus
-                combined = [
-                    (desc_scores[i] + page_scores[i], all_img_chunks[i])
-                    for i in range(len(all_img_chunks))
-                ]
-                combined.sort(key=lambda x: x[0], reverse=True)
-                best_imgs = [c for score, c in combined if score > 0][:3]
-
-                # Inject at front, deduplicating
-                existing_ids = {c.get("chunk_id", c["text"][:32]) for c in reranked}
-                inserts = []
-                for img in best_imgs:
-                    cid = img.get("chunk_id", img["text"][:32])
-                    if cid not in existing_ids:
-                        inserts.append(img)
-                        existing_ids.add(cid)
-                reranked = inserts + reranked
-        except Exception:
-            pass
+            existing_ids = {c.get("chunk_id", c["text"][:32]) for c in reranked}
+            inserts = []
+            for img in best_imgs:
+                cid = img.get("chunk_id", img["text"][:32])
+                if cid not in existing_ids:
+                    inserts.append(img)
+                    existing_ids.add(cid)
+            reranked = inserts + reranked
 
         # Images always first → Source 1, Source 2 in LLM context
         img_r  = [c for c in reranked if c.get("chunk_type") == "image"]
