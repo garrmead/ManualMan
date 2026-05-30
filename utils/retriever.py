@@ -22,13 +22,16 @@ import config
 from utils.bm25_index import search as bm25_search, tokenize as bm25_tokenize
 from utils.troubleshoot import classify_query, get_troubleshoot_system_addendum
 
-_RETRIEVER_VERSION = "rpm-penalty-v1"
+_RETRIEVER_VERSION = "rpm-penalty-v2"
 
 # Detects numeric tokens in a query (e.g. "1450", "316", "3-13")
 _NUMBERS_RE = re.compile(r'\b\d+\b')
 
 # Matches RPM-range speeds (500–3000) for composite-curve penalty
 _RPM_RE = re.compile(r'\b([5-9]\d{2}|[12]\d{3})\b')
+
+# Detects pure-digit tokens (used to weight numeric matches more heavily)
+_DIGIT_RE = re.compile(r'^\d+$')
 
 
 # ── RRF merge ─────────────────────────────────────────────────────────────────
@@ -221,6 +224,8 @@ def retrieve(
         #   → penalises composite curves that list many speeds ("850, 1150, 1450...")
         #     over a focused single-speed description ("operating at 1450 RPM only")
         q_terms     = set(bm25_tokenize(question))
+        q_nums      = {t for t in q_terms if _DIGIT_RE.match(t)}   # e.g. {"1450"}
+        q_words     = q_terms - q_nums                              # e.g. {"rpm","curve"}
         query_rpms  = set(_RPM_RE.findall(question))
         img_scores: dict[str, float] = {}
 
@@ -229,12 +234,17 @@ def retrieve(
             for doc, meta in zip(docs, metas):
                 cid        = meta.get("chunk_id", doc[:32])
                 desc_terms = set(bm25_tokenize(doc))
-                hit_count  = len(q_terms & desc_terms)
+                desc_nums  = {t for t in desc_terms if _DIGIT_RE.match(t)}
+                # Numeric hits weighted 3× — the RPM value is the primary identifier.
+                # Word hits count once — "single", "speed", "curve" are secondary.
+                # RPM penalty — deducts 0.5 per extra speed listed in description.
+                num_hits   = len(q_nums  & desc_nums)
+                word_hits  = len(q_words & (desc_terms - desc_nums))
                 extra_rpms = len(set(_RPM_RE.findall(doc)) - query_rpms)
-                score      = float(hit_count) - 0.5 * extra_rpms
+                score      = 3 * num_hits + word_hits - 0.5 * extra_rpms
                 img_scores[cid] = score
-                print(f"  score={score:5.1f}  hits={hit_count}  extra_rpms={extra_rpms}  "
-                      f"id=...{cid[-8:]}  desc={doc[:80]!r}")
+                print(f"  score={score:5.1f}  num={num_hits}  word={word_hits}  "
+                      f"extra_rpms={extra_rpms}  id=...{cid[-8:]}  desc={doc[:80]!r}")
                 if score > 0:
                     all_img_scored.append((score, _build_chunk_dict(doc, meta, 0.0)))
 
